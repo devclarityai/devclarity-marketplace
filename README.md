@@ -10,21 +10,12 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 ## Install
 
-**From a hosted git repo** (recommended for sharing — push this repo to GitHub/GitLab first):
-
 ```shell
-/plugin marketplace add <owner>/<repo>
+/plugin marketplace add devclarityai/devclarity-marketplace
 /plugin install training@devclarity-marketplace
 ```
 
-**From a local clone:**
-
-```shell
-/plugin marketplace add /path/to/devclarity-marketplace
-/plugin install training@devclarity-marketplace
-```
-
-Refresh after the marketplace is updated upstream: `/plugin marketplace update`.
+Refresh later with `/plugin marketplace update`.
 
 ## Requirements
 
