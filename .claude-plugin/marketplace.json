@@ -1,0 +1,18 @@
+{
+  "name": "devclarity-marketplace",
+  "owner": {
+    "name": "DevClarity",
+    "email": "will@devclarity.ai"
+  },
+  "metadata": {
+    "description": "DevClarity's internal marketplace of Claude Code plugins.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "training",
+      "source": "./plugins/training",
+      "description": "DevClarity training skills and tooling for Claude Code."
+    }
+  ]
+}

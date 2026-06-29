@@ -1,0 +1,10 @@
+{
+  "name": "training",
+  "description": "DevClarity training skills and tooling for Claude Code.",
+  "version": "1.0.0",
+  "author": {
+    "name": "DevClarity",
+    "email": "will@devclarity.ai"
+  },
+  "homepage": "https://devclarity.ai"
+}

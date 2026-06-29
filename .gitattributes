@@ -1,0 +1,3 @@
+# Keep shell scripts LF-only so the #!/usr/bin/env bash shebang survives clones
+# on Windows (Git Bash / WSL need LF; CRLF breaks the interpreter line).
+*.sh text eol=lf
