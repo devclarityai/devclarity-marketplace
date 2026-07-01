@@ -105,3 +105,5 @@ End with a short list of signals you considered and **rejected**, so the audit i
 - `scripts/scan-workflows.sh` — inventories Makefiles, package.json scripts, task runners, CI, `scripts/`, runbook docs, and existing skills. `--repo`. Run `--help` for details.
 
 Both default to the current directory and emit sorted, timestamp-free output, so reruns on unchanged history are byte-identical.
+
+**If a script can't run here** (missing `bash`/a tool, or a different OS): don't abandon the task — the scripts only automate ordinary git/text commands, so reproduce the same steps directly with whatever tools this environment has.

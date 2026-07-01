@@ -8,13 +8,20 @@ DevClarity training skills and tooling for Claude Code.
 | :---- | :------- |
 | [`finding-skill-opportunities`](./skills/finding-skill-opportunities) | Auditing a codebase to decide what skills to write — mines git history and existing automation for recurring, multi-step procedures worth capturing. `/training:finding-skill-opportunities` |
 | [`skill-improver`](./skills/skill-improver) | Reviewing or improving an existing skill — checks name/scope, description, structure, and leanness, and surfaces concrete references/scripts/determinism opportunities. `/training:skill-improver` |
+| [`skill-eval-builder`](./skills/skill-eval-builder) | Setting up evals for a skill — scaffolds an `evals/` folder + scorecard measuring whether it fires, output is valid, is in time budget, or (optional) whether its classification gate labels inputs correctly. `/training:skill-eval-builder` |
 
-## Requirements
+## Requirements & portability
 
-These skills run bundled **bash** scripts. On **Windows**, install
-[Git for Windows](https://gitforwindows.org/) so Claude Code can run them via Git Bash
-(they use `git`/`awk`/`sed`/`grep`/`find` and won't run under bare PowerShell/cmd).
-macOS, Linux, and WSL work as-is.
+Most skills here run bundled **bash** scripts (`git`/`awk`/`sed`/`grep`/`find`);
+`skill-eval-builder` runs **Python 3** scripts and calls the **`claude`** CLI. On
+**Windows**, install [Git for Windows](https://gitforwindows.org/) so Claude Code can
+run the bash scripts via Git Bash (they won't run under bare PowerShell/cmd). macOS,
+Linux, and WSL work as-is.
+
+**These scripts may not run on every machine — and that's OK.** They only automate
+ordinary commands, and each skill is written to fall back to doing the same steps with
+whatever tools your environment provides. A missing interpreter degrades gracefully
+instead of blocking the task.
 
 ## Adding a skill
 

@@ -17,14 +17,16 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 Refresh later with `/plugin marketplace update`.
 
-## Requirements
+## Requirements & portability
 
 - **macOS / Linux / WSL:** works out of the box.
-- **Windows:** the `training` skills run bundled **bash** scripts (using `git`, `awk`,
-  `sed`, `grep`, `find`). Install **[Git for Windows](https://gitforwindows.org/)** so
-  Claude Code can use Git Bash for these — they will not run under bare PowerShell/cmd.
-  `.sh` files are pinned to LF line endings (see `.gitattributes`) so shebangs survive
-  Windows clones.
+- **Windows:** bundled **bash** scripts need **[Git for Windows](https://gitforwindows.org/)**
+  so Claude Code can run them via Git Bash (not bare PowerShell/cmd). `.sh` files are
+  pinned to LF line endings (see `.gitattributes`) so shebangs survive Windows clones.
+- **Tooling varies:** some skills use bash + POSIX utilities; some use **Python 3** and
+  the **`claude`** CLI. These scripts may not run on every setup — and that's fine: each
+  skill is written to **fall back** to performing the same steps with whatever tools your
+  environment provides, so a missing interpreter degrades gracefully rather than blocking.
 
 ## Develop
 

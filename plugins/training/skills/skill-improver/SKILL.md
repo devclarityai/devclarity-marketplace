@@ -66,3 +66,5 @@ Overall: <1-2 sentences, specific and encouraging. No score.>
 ## Scripts
 
 - `scripts/skill-lint.sh` — deterministic mechanical checks (frontmatter, name, description, size, sections, orphaned/non-deterministic files). Read-only; pass a skill dir or `SKILL.md` path.
+
+**If a script can't run here** (missing `bash`/a tool, or a different OS): don't abandon the task — the scripts only automate ordinary git/text commands, so reproduce the same steps directly with whatever tools this environment has.
