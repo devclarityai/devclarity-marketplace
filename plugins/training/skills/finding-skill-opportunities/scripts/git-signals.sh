@@ -15,10 +15,14 @@
 # history are byte-identical (deterministic).
 #
 # Usage:
-#   git-signals.sh [--repo DIR] [--since DATE] [--top N]
+#   git-signals.sh [--repo DIR] [--days N | --since DATE] [--top N]
 #
 #   --repo DIR    Repository to analyze (default: current directory)
-#   --since DATE  Only consider commits after DATE (e.g. "1 year ago", 2024-01-01)
+#   --days N      Only consider commits from the last N days. Sugar for
+#                 --since "N days ago", so one lookback window can drive both
+#                 this script and session-signals.py --days N.
+#   --since DATE  Only consider commits after DATE (e.g. "1 year ago", 2024-01-01).
+#                 Wins if both are given.
 #   --top N       How many rows per ranked section (default: 20)
 #
 # No pipefail: we deliberately pipe `git log` into `head`, which closes the
@@ -29,18 +33,28 @@ export LC_ALL=C
 
 REPO="."
 SINCE=""
+DAYS=""
 TOP=20
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo)  REPO="$2"; shift 2 ;;
     --since) SINCE="$2"; shift 2 ;;
+    --days)  DAYS="$2"; shift 2 ;;
     --top)   TOP="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+# --days is sugar over git's approxidate parser; an explicit --since wins.
+if [ -n "$DAYS" ]; then
+  case "$DAYS" in
+    ''|*[!0-9]*) echo "ERROR: --days must be a whole number, got '$DAYS'." >&2; exit 2 ;;
+  esac
+  [ -z "$SINCE" ] && SINCE="$DAYS days ago"
+fi
 
 if ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   echo "ERROR: '$REPO' is not a git repository." >&2
