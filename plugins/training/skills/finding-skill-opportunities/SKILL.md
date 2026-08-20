@@ -58,7 +58,7 @@ All scripts are read-only and deterministic. Run the ones the chosen source call
    uv run python "${CLAUDE_SKILL_DIR}/scripts/session-signals.py" --repo <path> --days 30 --top 20
    # widen beyond this repo's sessions: --scope all
    ```
-   Reads `~/.claude/projects/*/*.jsonl`. Defaults to sessions whose working directory is the repo or below it. If it reports 0 sessions in scope, the work happened elsewhere — retry with `--scope all` before concluding there's nothing there.
+   Reads `~/.claude/projects/*/*.jsonl`. A session counts as being about the repo if its working directory is the repo **or** it edited files inside it — people routinely run Claude from a vault or workspace root while working on another repo, and the summary breaks the match down (`matched by cwd` vs `by files edited`) so you can see which happened. Use `--scope all` to ignore repo membership entirely.
 
    Invoke Python as `uv run python` on this user's machine (bare `python` hits the Windows Store stub); the script is pure standard library, so `python3 …` works anywhere else.
 

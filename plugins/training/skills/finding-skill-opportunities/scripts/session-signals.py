@@ -66,6 +66,12 @@ STOPWORDS = {
     "that", "it", "and", "or", "but", "is", "are", "was", "were", "be",
     "from", "by", "at", "as", "i", "we", "you", "me", "please", "can", "could",
     "would", "should", "our", "your", "its", "all", "any", "so", "then", "just",
+    # Fillers that otherwise become the "object" of a cluster key and produce
+    # meaningless rows like "make sure" or "add new".
+    "sure", "new", "other", "another", "thing", "things", "stuff", "way",
+    "bit", "little", "more", "less", "better", "again", "now", "here", "there",
+    "those", "these", "them", "what", "which", "when", "where", "how", "why",
+    "into", "out", "up", "down", "over", "back", "also", "still", "one", "two",
 }
 
 # Correction-shaped turns: a terse critique after a long assistant turn. Kept
@@ -285,10 +291,13 @@ def main(argv):
         return 1
 
     repo = Path(args.repo).resolve()
+    repo_prefix = str(repo).replace("\\", "/").rstrip("/") + "/"
     transcripts = sorted(root.glob("*/*.jsonl"))
 
     scanned = 0
     sessions = []
+    by_cwd = 0
+    by_files = 0
     for path in transcripts:
         events = load_events(path)
         if not events:
@@ -304,15 +313,25 @@ def main(argv):
         if started < cutoff:
             continue
         if args.scope == "repo":
+            # Two ways a session counts as being about this repo. cwd alone is not
+            # enough: people routinely run Claude from one directory (a notes vault,
+            # a workspace root) while editing another repo, and scoping on cwd only
+            # reports 0 sessions for a repo with hundreds of edits.
+            cwd_match = False
             cwd = s["cwd"]
-            if not cwd:
+            if cwd:
+                try:
+                    cwd_path = Path(cwd).resolve()
+                    cwd_match = cwd_path == repo or repo in cwd_path.parents
+                except OSError:
+                    cwd_match = False
+            file_match = any(f.startswith(repo_prefix) for f in s["files"])
+            if not (cwd_match or file_match):
                 continue
-            try:
-                cwd_path = Path(cwd).resolve()
-            except OSError:
-                continue
-            if cwd_path != repo and repo not in cwd_path.parents:
-                continue
+            if cwd_match:
+                by_cwd += 1
+            else:
+                by_files += 1
         s["path"] = path
         sessions.append(s)
 
@@ -327,6 +346,9 @@ def main(argv):
     print("window            : %s" % window_label)
     print("transcripts read  : %d" % scanned)
     print("sessions in scope : %d" % len(sessions))
+    if args.scope == "repo":
+        print("  matched by cwd  : %d" % by_cwd)
+        print("  by files edited : %d  (session ran elsewhere)" % by_files)
     print("  substantive     : %d" % len(substantive))
     print("  used a skill    : %d" % len(with_skill))
     print("  no skill (pool) : %d" % len(no_skill))
@@ -358,11 +380,35 @@ def main(argv):
     counts = Counter({k: len(v) for k, v in clusters.items() if k[0] != "?"})
     rows = ranked(counts, args.top, min_count=2)
     emit(rows, fmt=lambda k: "%s %s" % (k[0], " ".join(k[1])))
+    if not no_skill:
+        # An empty pool is a finding, not a dead end - and the fix for it is the
+        # opposite of widening the window, so say which case this is.
+        print("  Every substantive session in scope already used a skill. The")
+        print("  opportunity here is sharpening those skills (see SKILLS ALREADY USED")
+        print("  and FRICTION, then the skill-improver skill), not adding new ones.")
+    elif not rows:
+        print("  Too few sessions for a repeated verb+object phrasing to emerge. Read")
+        print("  ACTION VOLUME and REPEATED TOOL SEQUENCES below instead, or widen")
+        print("  the window with --days N.")
     if rows and not args.no_examples:
         print("\n  examples (first prompt per top cluster):")
         for key, _ in rows[:5]:
             sample = " ".join(clusters[key][0].split())[:140]
             print("    [%s %s] %s" % (key[0], " ".join(key[1]), sample))
+
+    # Coarser than the clusters above and always populated: which KINDS of ask
+    # dominate. On its own it never names a candidate - pair a heavy verb with a
+    # tool sequence or a hot file to find the procedure underneath it.
+    section("ACTION VOLUME (no-skill sessions asking for each action)")
+    verbs = Counter()
+    for s in no_skill:
+        seen_v = set()
+        for p in s["prompts"]:
+            v = cluster_key(p)[0]
+            if v != "?" and v not in seen_v:
+                seen_v.add(v)
+                verbs[v] += 1
+    emit(ranked(verbs, args.top))
 
     section("RECURRING TASK KEYWORDS (in user prompts)")
     kw = Counter()
@@ -389,8 +435,6 @@ def main(argv):
     # In repo scope, a session's files can live anywhere the user wandered
     # (plugin caches, other repos). Rank only files belonging to the repo under
     # audit, and report the rest as a single count so nothing is silently cut.
-    repo_prefix = str(repo).replace("\\", "/").rstrip("/") + "/"
-
     def in_scope(path):
         return args.scope == "all" or path.startswith(repo_prefix)
 

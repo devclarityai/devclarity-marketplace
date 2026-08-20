@@ -21,6 +21,7 @@ What each section of each script's output tends to mean. Read this during synthe
 | Signal (from `session-signals.py`) | Likely skill opportunity |
 | :--------------------------------- | :----------------------- |
 | **Session funnel** (`no skill (pool)`) | The size of the opportunity. A large no-skill pool means real work is running uncovered; a small one means the leverage is in improving existing skills instead. |
+| **Action volume** | Coarse but always populated: which *kinds* of ask dominate. Never names a candidate alone - pair a heavy verb with a tool sequence or a hot file to find the procedure under it |
 | **Recurring request clusters** | The same ask, phrased differently, across sessions — the most direct skill candidate there is, because the trigger phrasing is handed to you |
 | **Recurring task keywords** | Cross-check against the same section in the git output; a keyword high in both is corroborated |
 | **Repeated tool sequences** | A procedure with a fixed shape. Generic edit-loops are filtered out, so what remains (MCP call chains, subagent fan-outs) is the automatable part |
