@@ -570,7 +570,7 @@ def inventory_context(path, r, tracked, scope=None):
         if rc == 0 and out.strip().isdigit():
             ts = int(out.strip())
             r["context_last_updated_days"] = round((NOW - ts) / DAY, 1)
-            since = datetime.fromtimestamp(ts + 1, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            since = datetime.fromtimestamp(ts + 1, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             # scoped: only commits touching this area count against its context
             rc2, out2, _ = sh(["git", "rev-list", "--count", "--since", since, "HEAD"]
                               + (["--", scope] if scope else []), cwd=path)
@@ -809,6 +809,20 @@ def classify(r):
     r["has_context"] = bool(r.get("has_claude_md") or r.get("has_agents_md")
                             or ctx_lines or extra or r["has_rules"])
     r["has_nested_or_rules"] = bool(r.get("nested_claude_count") or r["has_rules"])
+
+    # What the unit owns, vs what governs it from above. Equal to the totals
+    # unless a scope inherited something.
+    anchors = r.get("context_anchors") or []
+    inh_lines = r.get("inherited_context_lines") or 0
+    r["own_context_lines"] = max(0, ctx_lines - inh_lines)
+    r["own_skills_count"] = max(0, (r.get("skills_count") or 0)
+                                - (r.get("inherited_skills_count") or 0))
+    r["own_rules"] = any(a.get("kind") == "rules" and not a.get("inherited")
+                         for a in anchors)
+    r["has_front_door"] = bool(r.get("has_claude_md") or r.get("has_agents_md")
+                               or any(a.get("kind") in ("claude", "agents")
+                                      and a.get("inherited") for a in anchors))
+    r["owns_no_context"] = bool(anchors) and not r["own_context_lines"]
 
     # --- density: LOC per line of context (a real ratio, repo-wide) ---------
     r["loc_per_context_line"] = round(loc / ctx_lines) if ctx_lines else None

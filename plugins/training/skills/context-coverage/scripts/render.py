@@ -243,13 +243,13 @@ function computeFindings(){
           : [['LOC',kloc(r.loc)+est(r)],['context lines',r.total_context_lines],['nested / rules','none']]});
     }
     // oversized single file
-    (r.context_anchors||[]).forEach(a=>{if(a.kind!=='rules'&&a.lines>PB.oversized_claude_lines)
+    (r.context_anchors||[]).forEach(a=>{if(a.kind!=='rules'&&!a.inherited&&a.lines>PB.oversized_claude_lines)
       F.push({repo:nm,sev:'warn',kind:'Long context file',mag:a.lines,
         title:`<span class="rn">${nm}</span>: <code>/${a.path}</code> is ${a.lines} lines`,
         detail:`Over ${PB.oversized_claude_lines} lines — long enough that an agent may not attend to all of it. Consider splitting into nested per-area files.`,
         chips:[['file length',a.lines+' lines'],['repo LOC',kloc(r.loc)+est(r)]]});});
     // single root file governing a large multi-folder repo
-    if(r.loc>=10000 && !r.nested_claude_count && !r.has_rules){
+    if(r.loc>=10000 && !r.nested_claude_count && !(r.own_rules!==undefined?r.own_rules:r.has_rules)){
       annotate(r);const kids=(r.dir_tree.children||[]).filter(c=>c.loc>=PB.dense_loc);
       if(kids.length>=2)F.push({repo:nm,sev:'warn',kind:'No per-area context',mag:r.loc||0,
         title:`<span class="rn">${nm}</span>: ${kids.length} large folders, all under one root context file`,
@@ -257,11 +257,19 @@ function computeFindings(){
         chips:[['large folders',kids.length],['nested context','0'],['root ctx lines',r.total_context_lines]]});
     }
     // skills but no root CLAUDE.md
-    if((r.skills_count||0)>=3 && !r.has_claude_md){
-      F.push({repo:nm,sev:'warn',kind:'Skills without a front door',mag:r.skills_count,
-        title:`<span class="rn">${nm}</span>: ${r.skills_count} skills but no root CLAUDE.md`,
+    const ownSkills=r.own_skills_count!==undefined?r.own_skills_count:(r.skills_count||0);
+    const frontDoor=r.has_front_door!==undefined?r.has_front_door:r.has_claude_md;
+    if(ownSkills>=3 && !frontDoor){
+      F.push({repo:nm,sev:'warn',kind:'Skills without a front door',mag:ownSkills,
+        title:`<span class="rn">${nm}</span>: ${ownSkills} skills but no root CLAUDE.md`,
         detail:`Plenty of skills, but nothing at the repo root to orient an agent to them.`,
-        chips:[['skills',r.skills_count],['root CLAUDE.md','none']]});
+        chips:[['skills',ownSkills],['root CLAUDE.md','none']]});
+    }
+    if(IS_REPO && r.owns_no_context && r.loc>=PB.dense_loc){
+      F.push({repo:nm,sev:'warn',kind:'No context of its own',mag:r.loc||0,
+        title:`<span class="rn">${nm}</span>: ${kloc(r.loc)} LOC with no context of its own`,
+        detail:`Everything orienting an agent here lives above this area — ${fmt(r.inherited_context_lines||0)} inherited lines written for the whole repo. Worth a look at whether this area needs its own.`,
+        chips:[['LOC',kloc(r.loc)],['own context lines','0'],['inherited lines',fmt(r.inherited_context_lines||0)]]});
     }
   });
   const rank={crit:0,warn:1}; F.sort((a,b)=>(rank[a.sev]-rank[b.sev])||b.mag-a.mag);
