@@ -6,12 +6,17 @@ Scans a set of repositories and measures how well each is covered by
 agent context (CLAUDE.md / AGENTS.md), skills, and commands -- cross-
 referenced against how *real*, *big*, *active*, and *fresh* each repo is.
 
-Two modes:
+Three modes:
   --dir  <folder>   Scan every git repo that is an immediate subdirectory
                     (full fidelity: real LOC, commit history, nested context).
   --org  <name>     Use the `gh` CLI to enumerate an org's repos and inspect
                     each via the GitHub trees/commits API without cloning
                     (lighter fidelity: byte-based size estimate).
+  --repo <path>     One repo. With --scope "apps/web,libs/ui", each subpath is
+                    analyzed as its own unit -- every measurement, git history
+                    included, restricted to that subtree -- so a team in a
+                    monorepo sees only the area it owns. Context above a scope
+                    still governs it and is reported as inherited.
 
 Output: a single JSON document on stdout (or --out FILE) that render.py turns
 into a self-contained HTML report.
