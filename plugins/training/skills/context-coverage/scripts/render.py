@@ -265,13 +265,24 @@ function computeFindings(){
         detail:`Plenty of skills, but nothing at the repo root to orient an agent to them.`,
         chips:[['skills',ownSkills],['root CLAUDE.md','none']]});
     }
-    if(IS_REPO && r.owns_no_context && r.loc>=PB.dense_loc){
+    if(IS_REPO && r.scope && r.owns_no_context && r.loc>=PB.dense_loc){
       F.push({repo:nm,sev:'warn',kind:'No context of its own',mag:r.loc||0,
         title:`<span class="rn">${nm}</span>: ${kloc(r.loc)} LOC with no context of its own`,
         detail:`Everything orienting an agent here lives above this area — ${fmt(r.inherited_context_lines||0)} inherited lines written for the whole repo. Worth a look at whether this area needs its own.`,
         chips:[['LOC',kloc(r.loc)],['own context lines','0'],['inherited lines',fmt(r.inherited_context_lines||0)]]});
     }
   });
+  if(IS_REPO){
+    const seen=new Set();
+    scoped.forEach(r=>(r.context_anchors||[]).forEach(a=>{
+      if(!a.inherited||a.kind==='rules'||a.lines<=PB.oversized_claude_lines||seen.has(a.path))return;
+      seen.add(a.path);
+      F.push({repo:SRC.repo,sev:'warn',kind:'Long context file',mag:a.lines,
+        title:`<span class="rn">${SRC.repo}</span>: <code>/${a.path}</code> is ${a.lines} lines`,
+        detail:`Over ${PB.oversized_claude_lines} lines — long enough that an agent may not attend to all of it. It governs every area scanned here, so splitting it into nested per-area files would help all of them.`,
+        chips:[['file length',a.lines+' lines'],['areas it governs',scoped.length]]});
+    }));
+  }
   const rank={crit:0,warn:1}; F.sort((a,b)=>(rank[a.sev]-rank[b.sev])||b.mag-a.mag);
   return F;
 }

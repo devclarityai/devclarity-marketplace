@@ -564,7 +564,12 @@ def inventory_context(path, r, tracked, scope=None):
     # --- context freshness (git) -------------------------------------------
     r["context_last_updated_days"] = None
     r["commits_since_context"] = None
-    all_ctx = repo_ctx + inherited
+    # Freshness measures the same kinds in both modes -- prose and rules, not
+    # skills or fixed-path files -- or a skill edit would reset a scoped area's
+    # clock while leaving the unscoped run's untouched.
+    all_ctx = repo_ctx + [p for p in inherited
+                          if p.lower() not in EXTRA_CONTEXT_FILES
+                          and p.rsplit("/", 1)[-1].lower() != "skill.md"]
     if r.get("is_git") and all_ctx:
         rc, out, _ = sh(["git", "log", "-1", "--format=%ct", "--"] + all_ctx, cwd=path)
         if rc == 0 and out.strip().isdigit():
