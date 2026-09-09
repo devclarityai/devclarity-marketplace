@@ -43,6 +43,7 @@ raw count, a real ratio, a date-derived number, or a simple boolean.
 | `skills_count` | `SKILL.md` files (vendored dirs excluded) |
 | `context_anchors` | `[{dir, lines, kind, path, inherited?}]` — every governing context file; drives folder governance and the tree |
 | `inherited_context_lines` | monorepo mode: lines of context living *above* the scope that still govern it (already included in `total_context_lines`) |
+| `inherited_skills_count` | monorepo mode: skills defined above the scope (already included in `skills_count`) |
 
 ### Freshness (measured from git history in both modes)
 | Field | Meaning |
@@ -67,7 +68,7 @@ raw count, a real ratio, a date-derived number, or a simple boolean.
 
 - **Things to check** (findings) fire on transparent rules: `commits_since_context ≥ 25` (stale), `loc_per_context_line > loc_per_ctxline_bad` on a large repo (thin), any context file `> oversized_claude_lines`, a large repo with big folders and no nested/rules context.
 - **Folder governance** (per-repo tree): each folder's nearest ancestor `context_anchor`; a folder's `loc ÷ that anchor's lines` colors it. `loc_per_context_line`-style density is shown **only when `has_nested_or_rules`** — with a single root file the ratio is just `loc ÷ root length`, so it's suppressed as noise.
-- **Monorepo scoping** (`--repo` + `--scope`): each scope is measured as its own unit — LOC, folder tree, git activity and freshness are all restricted to that subtree by a git pathspec. Context in an ancestor directory is not ignored (it does govern the area): it is added as an anchor at the scope root with `inherited: true`, counted in `total_context_lines`, and shown separately in the report so an area is never credited with owning it.
+- **Monorepo scoping** (`--repo` + `--scope`): each scope is measured as its own unit — LOC, folder tree, git activity and freshness are all restricted to that subtree by a git pathspec. Context in an ancestor directory is not ignored (it does govern the area): it is added as an anchor at the scope root with `inherited: true`, counted in `total_context_lines`, and shown separately in the report so an area is never credited with owning it. `context_governing_dir()` decides what an artifact governs — a `CLAUDE.md`/`AGENTS.md` governs its own directory, a rule file governs the directory holding its `rules/` dir (stepping over a tool surface, so `.cursor/rules/` and `.claude/rules/` govern the root like a bare `rules/` does), a skill governs the directory holding its surface, and fixed-path files (`.cursorrules`, `.github/copilot-instructions.md`) govern the root. A file inside the scope is the area's own and is never inherited. Scoped and unscoped runs of the same repo therefore report the same total context.
 - Vendored dirs (`node_modules`, `.venv`, `site-packages`, `dist`, …) are pruned everywhere, so context that ships inside a dependency never counts.
 
 ## Extending

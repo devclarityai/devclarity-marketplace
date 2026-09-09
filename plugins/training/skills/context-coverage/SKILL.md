@@ -54,7 +54,15 @@ uv run python scripts/render.py coverage-data.json --out coverage-report.html
   pathspec. Another team's churn can never make your area look stale.
 - **Context above your scope still counts, and is labelled.** A root `CLAUDE.md` genuinely
   governs `apps/web`, so it is included as *inherited* context — counted in the coverage
-  numbers, but shown on its own line so an area is never credited with owning it.
+  numbers, but shown on its own line so an area is never credited with owning it. Every
+  kind the unscoped scan counts is inherited, not just `CLAUDE.md`: `AGENTS.md`, any
+  ancestor `rules/` dir including `.cursor/rules/` and `.claude/rules/`, `.cursorrules`,
+  `.github/copilot-instructions.md`, and root-level skills. A scoped run and an unscoped
+  run of the same repo agree on how much context there is.
+- **A bad `--scope` is an error, not a silent zero.** Scopes are validated against the
+  directories that actually hold tracked files, so `Apps/Web` resolves to `apps/web`
+  rather than quietly measuring nothing on a case-insensitive filesystem, and `.`,
+  `..`, absolute paths and glob/pathspec characters are rejected outright.
 - `--repo` with no `--scope` analyzes the whole repo as one unit (identical numbers to
   running `--dir` on its parent, filtered to that repo).
 - Named scopes are always analyzed — the 90-day activity cutoff and the throwaway-name

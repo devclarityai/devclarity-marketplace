@@ -216,48 +216,131 @@ def ancestor_dirs(scope):
     return out
 
 
+def context_governing_dir(path):
+    """The directory a context artifact governs, or None if `path` is not one.
+
+    A CLAUDE.md/AGENTS.md governs its own directory. A rule file governs the
+    directory holding its `rules/` dir, stepping over a tool surface first, so
+    `.cursor/rules/style.mdc` and `.claude/rules/r.md` govern the root exactly
+    as a bare `rules/r.md` does. A skill governs the directory holding its
+    surface. Fixed-path files (`.cursorrules`, `.github/copilot-instructions.md`)
+    only ever exist at the root, so they govern the root."""
+    segs = path.split("/")
+    low = [s.lower() for s in segs]
+    base = low[-1]
+    if path.lower() in EXTRA_CONTEXT_FILES:
+        return ""
+    if base in ("claude.md", "agents.md"):
+        return "/".join(segs[:-1])
+    dirs = low[:-1]
+    if base == "skill.md":
+        for i, s in enumerate(dirs):
+            if s in SURFACE_DIRS:
+                return "/".join(segs[:i])
+        return "/".join(segs[:-1])
+    if os.path.splitext(base)[1] in RULE_EXTS:
+        idx = max((i for i, s in enumerate(dirs) if s in RULES_DIR_NAMES),
+                  default=-1)
+        if idx >= 0:
+            if idx > 0 and dirs[idx - 1] in SURFACE_DIRS:
+                idx -= 1
+            return "/".join(segs[:idx])
+    return None
+
+
 def ancestor_context_paths(paths, scope):
-    """Context files above the scope that still govern it: CLAUDE.md /
-    AGENTS.md in an ancestor dir, and rule files in an ancestor /rules/ dir."""
+    """Every context artifact above the scope that still governs it -- any kind
+    the unscoped scan would count, not just CLAUDE.md. A file inside the scope
+    is the area's own and is never inherited, so a scope that is itself named
+    `rules` keeps its own rule files."""
     anc = set(ancestor_dirs(scope))
-    found = []
-    for p in paths:
-        segs = p.lower().split("/")
-        base = segs[-1]
-        d = _dir_of(p)
-        if base in ("claude.md", "agents.md") and d in anc:
-            found.append(p)
-        elif (os.path.splitext(base)[1] in RULE_EXTS
-              and d.rsplit("/", 1)[-1].lower() in RULES_DIR_NAMES
-              and _dir_of(d) in anc):
-            found.append(p)
+    found = [p for p in paths
+             if not under_scope(p, scope) and context_governing_dir(p) in anc]
     return sorted(found, key=lambda x: (x.count("/"), x))
+
+
+def repo_dirs(root):
+    """Every directory in the repo that holds tracked files, repo-relative and
+    POSIX. Used to validate a --scope against what the scan will actually
+    measure, which `os.path.isdir` does not: on a case-insensitive filesystem
+    it happily accepts `Apps/Web` for `apps/web`, and the scan then matches
+    nothing."""
+    rc, out, _ = sh(["git", "ls-files", "-z"], cwd=root)
+    dirs = set()
+    if rc == 0:
+        for f in out.split("\0"):
+            parts = f.split("/")[:-1] if f else []
+            for i in range(1, len(parts) + 1):
+                dirs.add("/".join(parts[:i]))
+        return dirs
+    for dp, _, _ in walk_pruned(root):                  # not a git repo
+        rel = os.path.relpath(dp, root).replace(os.sep, "/")
+        if rel != ".":
+            dirs.add(rel)
+    return dirs
+
+
+def resolve_scope(requested, dirs):
+    """Validate one --scope against the repo's real directories, returning
+    (canonical_scope, error). Resolves case so the file filter and the git
+    pathspec agree with what was typed, and rejects anything that would
+    silently measure nothing (or everything)."""
+    raw = (requested or "").strip()
+    s = norm_scope(raw)
+    if os.path.isabs(raw) or (len(raw) > 1 and raw[1] == ":"):
+        return None, "must be relative to the repo root"
+    if not s:
+        return None, "is empty -- name a subdirectory, or drop --scope to scan the whole repo"
+    if any(seg in (".", "..") for seg in s.split("/")):
+        return None, "must not contain '.' or '..' segments"
+    if any(ch in s for ch in "*?[]:"):
+        return None, "must be a plain path (no glob or git pathspec magic)"
+    if s in dirs:
+        return s, None
+    matches = sorted(d for d in dirs if d.lower() == s.lower())
+    if len(matches) == 1:
+        return matches[0], None
+    if matches:
+        return None, "matches several directories by case: " + ", ".join(matches)
+    return None, "is not a directory holding tracked files in this repo"
 
 
 def add_inherited_anchors(r, path, inherited):
     """Fold ancestor context into the scope's record: each file becomes an
     anchor governing the scope root (dir ''), flagged `inherited` so the report
-    can show it as borrowed, and its lines count toward coverage."""
+    can show it as borrowed, and its lines count toward coverage. Skills and
+    fixed-path files carry no line count, matching how the unscoped scan
+    counts them."""
     r["inherited_context_lines"] = 0
+    r["inherited_skills_count"] = 0
     if not inherited:
         return
-    rules_by_dir, total = {}, 0
+    rules_by_dir, total, skills, extra = {}, 0, 0, set()
     for p in inherited:
+        low = p.lower()
+        base = low.rsplit("/", 1)[-1]
+        if low in EXTRA_CONTEXT_FILES:
+            extra.add(EXTRA_CONTEXT_FILES[low])
+            continue
+        if base == "skill.md":
+            skills += 1
+            continue
         n = count_lines(os.path.join(path, p))
         total += n
-        base = p.rsplit("/", 1)[-1].lower()
         if base in ("claude.md", "agents.md"):
             r["context_anchors"].append({
                 "dir": "", "lines": n, "path": p, "inherited": True,
                 "kind": "claude" if base == "claude.md" else "agents"})
         else:
-            d = _dir_of(p)
-            rules_by_dir[d] = rules_by_dir.get(d, 0) + n
+            rules_by_dir[_dir_of(p)] = rules_by_dir.get(_dir_of(p), 0) + n
     for d, n in sorted(rules_by_dir.items()):
         r["context_anchors"].append({"dir": "", "lines": n, "path": d,
                                      "kind": "rules", "inherited": True})
     r["inherited_context_lines"] = total
     r["total_context_lines"] = (r.get("total_context_lines") or 0) + total
+    r["inherited_skills_count"] = skills
+    r["skills_count"] = (r.get("skills_count") or 0) + skills
+    r["extra_context"] = sorted(set(r.get("extra_context") or []) | extra)
     if rules_by_dir:
         r["has_rules"] = True
 
@@ -457,6 +540,20 @@ def inventory_context(path, r, tracked, scope=None):
     inherited = ancestor_context_paths(paths, scope) if scope else []
     own_paths = [rel_to_scope(p, scope) for p in paths if under_scope(p, scope)] if scope else paths
     c = classify_context_paths(own_paths)
+    if scope:
+        # Re-rooting strips the `rules/` marker from a scope that is itself a
+        # rules dir (--scope rules -> `rules/r.md` becomes `r.md`), so recover
+        # those from the repo-relative path. They govern the scope root.
+        known = set(c["rules"])
+        for p in paths:
+            low = p.lower()
+            if (under_scope(p, scope)
+                    and os.path.splitext(low)[1] in RULE_EXTS
+                    and any(s in RULES_DIR_NAMES for s in low.split("/")[:-1])):
+                rp = rel_to_scope(p, scope)
+                if rp not in known:
+                    c["rules"].append(rp)
+                    known.add(rp)
     ctx = context_files(c)                                   # scope-relative
     repo_ctx = [(scope + "/" + p if scope else p) for p in ctx]   # repo-relative
     lines = {p: count_lines(os.path.join(path, scope, p) if scope
@@ -792,7 +889,7 @@ def main():
         exclude += [p for p in ov.get("exclude", []) if p not in exclude]
         opt_in_only = opt_in_only or bool(ov.get("opt_in_only"))
 
-    scopes = [norm_scope(s) for s in args.scope.split(",") if s.strip()]
+    scopes = [s for s in args.scope.split(",") if s.strip()]
     if scopes and not args.repo:
         sys.exit("--scope only applies to --repo (a single repo). For a folder of clones use --dir.")
 
@@ -804,10 +901,17 @@ def main():
         if not os.path.isdir(root):
             sys.exit(f"not a directory: {root}")
         repo_name = os.path.basename(root.rstrip(os.sep)) or root
+        if scopes:
+            dirs = repo_dirs(root)
+            resolved, bad = [], []
+            for s in scopes:
+                canon, err = resolve_scope(s, dirs)
+                (bad if err else resolved).append(f"  {s!r} {err}" if err else canon)
+            if bad:
+                sys.exit(f"bad --scope for {repo_name}:\n" + "\n".join(bad))
+            seen = set()
+            scopes = [s for s in resolved if not (s in seen or seen.add(s))]
         source = {"mode": "repo", "path": root, "repo": repo_name, "scopes": scopes}
-        for s in scopes:
-            if not os.path.isdir(os.path.join(root, s)):
-                sys.exit(f"scope not found in {repo_name}: {s}")
         units = [(s, f"{repo_name}/{s}") for s in scopes] or [("", repo_name)]
         for i, (s, label) in enumerate(units, 1):
             print(f"[{i}/{len(units)}] scanning {label}...", file=sys.stderr)
