@@ -180,6 +180,83 @@ def _dir_of(path):
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
 
+# ---------------------------------------------------------------------------
+# Monorepo scoping helpers -- a "scope" is a subdirectory of one repo that is
+# analyzed as its own unit, so a team sees only the area they own.
+# ---------------------------------------------------------------------------
+def norm_scope(scope):
+    """Normalize a scope subpath: POSIX separators, no leading/trailing slash."""
+    return (scope or "").replace("\\", "/").strip("/")
+
+
+def under_scope(path, scope):
+    """Is this repo-relative path inside the scope? (whole repo if no scope)"""
+    return True if not scope else path == scope or path.startswith(scope + "/")
+
+
+def rel_to_scope(path, scope):
+    """Re-root a repo-relative path onto the scope, so the scope's own
+    directory looks like a repo root to every downstream measurement."""
+    return path[len(scope) + 1:] if scope and path.startswith(scope + "/") else path
+
+
+def ancestor_dirs(scope):
+    """Every directory above the scope, root ('') first. A CLAUDE.md in any of
+    them genuinely governs the scope, so it is counted as inherited rather
+    than ignored."""
+    out = [""]
+    parts = [p for p in norm_scope(scope).split("/") if p]
+    for i in range(1, len(parts)):
+        out.append("/".join(parts[:i]))
+    return out
+
+
+def ancestor_context_paths(paths, scope):
+    """Context files above the scope that still govern it: CLAUDE.md /
+    AGENTS.md in an ancestor dir, and rule files in an ancestor /rules/ dir."""
+    anc = set(ancestor_dirs(scope))
+    found = []
+    for p in paths:
+        segs = p.lower().split("/")
+        base = segs[-1]
+        d = _dir_of(p)
+        if base in ("claude.md", "agents.md") and d in anc:
+            found.append(p)
+        elif (os.path.splitext(base)[1] in RULE_EXTS
+              and d.rsplit("/", 1)[-1].lower() in RULES_DIR_NAMES
+              and _dir_of(d) in anc):
+            found.append(p)
+    return sorted(found, key=lambda x: (x.count("/"), x))
+
+
+def add_inherited_anchors(r, path, inherited):
+    """Fold ancestor context into the scope's record: each file becomes an
+    anchor governing the scope root (dir ''), flagged `inherited` so the report
+    can show it as borrowed, and its lines count toward coverage."""
+    r["inherited_context_lines"] = 0
+    if not inherited:
+        return
+    rules_by_dir, total = {}, 0
+    for p in inherited:
+        n = count_lines(os.path.join(path, p))
+        total += n
+        base = p.rsplit("/", 1)[-1].lower()
+        if base in ("claude.md", "agents.md"):
+            r["context_anchors"].append({
+                "dir": "", "lines": n, "path": p, "inherited": True,
+                "kind": "claude" if base == "claude.md" else "agents"})
+        else:
+            d = _dir_of(p)
+            rules_by_dir[d] = rules_by_dir.get(d, 0) + n
+    for d, n in sorted(rules_by_dir.items()):
+        r["context_anchors"].append({"dir": "", "lines": n, "path": d,
+                                     "kind": "rules", "inherited": True})
+    r["inherited_context_lines"] = total
+    r["total_context_lines"] = (r.get("total_context_lines") or 0) + total
+    if rules_by_dir:
+        r["has_rules"] = True
+
+
 def classify_context_paths(paths):
     """Sort repo-relative POSIX paths into context artifacts (CLAUDE.md /
     AGENTS.md / rules / skills / commands / surfaces / other-tool files)."""
@@ -248,10 +325,22 @@ def context_files(c):
 # ---------------------------------------------------------------------------
 # Local directory mode
 # ---------------------------------------------------------------------------
-def scan_local_repo(path, name):
+def scan_local_repo(path, name, scope=None):
+    """Scan a repo (or, with `scope`, one subdirectory of it as its own unit).
+
+    Under a scope every measurement is restricted to that subtree -- LOC, file
+    counts, the folder tree, and (crucially in a monorepo) git activity, which
+    is filtered with a pathspec so another team's churn never makes this area
+    look stale. Context above the scope is picked up separately as inherited."""
+    scope = norm_scope(scope)
     r = {"name": name, "mode": "local", "errors": []}
+    if scope:
+        r["scope"] = scope
+        r["repo"] = os.path.basename(os.path.abspath(path))
     is_git = os.path.isdir(os.path.join(path, ".git"))
     r["is_git"] = is_git
+    # Pathspec limiting every git query to the scope (empty = whole repo).
+    pathspec = ["--", scope] if scope else []
 
     # --- size: LOC + file/content signals, respecting .gitignore when possible
     loc = 0
@@ -266,7 +355,10 @@ def scan_local_repo(path, name):
         if rc == 0:
             tracked = [f for f in out.split("\0") if f]
     if tracked is not None:
-        for rel in tracked:
+        for repo_rel in tracked:
+            if not under_scope(repo_rel, scope):
+                continue
+            rel = rel_to_scope(repo_rel, scope)
             file_count += 1
             low = rel.lower()
             if "/" not in low and low.startswith("readme"):
@@ -276,16 +368,17 @@ def scan_local_repo(path, name):
             ext = os.path.splitext(rel)[1].lower()
             if ext in CODE_EXTS:
                 code_files += 1
-                nl = count_lines(os.path.join(path, rel))
+                nl = count_lines(os.path.join(path, repo_rel))
                 loc += nl
                 file_locs.append((rel, nl))
     else:
-        for dp, _, fns in walk_pruned(path):
+        base_dir = os.path.join(path, scope) if scope else path
+        for dp, _, fns in walk_pruned(base_dir):
             for fn in fns:
                 file_count += 1
-                rel = os.path.relpath(os.path.join(dp, fn), path).replace("\\", "/")
+                rel = os.path.relpath(os.path.join(dp, fn), base_dir).replace("\\", "/")
                 low = rel.lower()
-                if dp == path and fn.lower().startswith("readme"):
+                if dp == base_dir and fn.lower().startswith("readme"):
                     has_readme = True
                 if low in EXTRA_CONTEXT_FILES:
                     extra_ctx.add(EXTRA_CONTEXT_FILES[low])
@@ -304,37 +397,48 @@ def scan_local_repo(path, name):
 
     # --- git activity -------------------------------------------------------
     if is_git:
-        rc, out, _ = sh(["git", "rev-list", "--count", "HEAD"], cwd=path)
+        rc, out, _ = sh(["git", "rev-list", "--count", "HEAD"] + pathspec, cwd=path)
         r["commits_total"] = int(out.strip()) if rc == 0 and out.strip().isdigit() else 0
         since = datetime.fromtimestamp(NOW - MODEL["active_window_days"] * DAY,
                                        tz=timezone.utc).strftime("%Y-%m-%d")
-        rc, out, _ = sh(["git", "rev-list", "--count", "--since", since, "HEAD"], cwd=path)
+        rc, out, _ = sh(["git", "rev-list", "--count", "--since", since, "HEAD"] + pathspec, cwd=path)
         r["commits_recent"] = int(out.strip()) if rc == 0 and out.strip().isdigit() else 0
-        rc, out, _ = sh(["git", "log", "-1", "--format=%ct"], cwd=path)
+        rc, out, _ = sh(["git", "log", "-1", "--format=%ct"] + pathspec, cwd=path)
         r["last_commit_days"] = round((NOW - int(out.strip())) / DAY, 1) if rc == 0 and out.strip().isdigit() else None
-        # first commit (age)
-        rc2, out2, _ = sh(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=path)
+        # age: oldest commit touching this area (the whole repo, unscoped)
+        rc2, out2, _ = sh(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=path) if not scope \
+            else sh(["git", "log", "--format=%ct", "--reverse"] + pathspec, cwd=path)
         first = None
         if rc2 == 0 and out2.strip():
-            fsha = out2.strip().splitlines()[-1]
-            rc3, o3, _ = sh(["git", "log", "-1", "--format=%ct", fsha], cwd=path)
-            if rc3 == 0 and o3.strip().isdigit():
-                first = round((NOW - int(o3.strip())) / DAY, 1)
+            if scope:
+                head = out2.strip().splitlines()[0]
+                if head.isdigit():
+                    first = round((NOW - int(head)) / DAY, 1)
+            else:
+                fsha = out2.strip().splitlines()[-1]
+                rc3, o3, _ = sh(["git", "log", "-1", "--format=%ct", fsha], cwd=path)
+                if rc3 == 0 and o3.strip().isdigit():
+                    first = round((NOW - int(o3.strip())) / DAY, 1)
         r["age_days"] = first
-        rc, out, _ = sh(["git", "shortlog", "-sne", "HEAD"], cwd=path)
+        rc, out, _ = sh(["git", "shortlog", "-sne", "HEAD"] + pathspec, cwd=path)
         r["contributors"] = len([l for l in out.splitlines() if l.strip()]) if rc == 0 else 0
     else:
         r.update(commits_total=0, commits_recent=0, last_commit_days=None,
                  age_days=None, contributors=0)
 
     # --- context inventory --------------------------------------------------
-    inventory_context(path, r, tracked)
+    inventory_context(path, r, tracked, scope)
     return r
 
 
-def inventory_context(path, r, tracked):
+def inventory_context(path, r, tracked, scope=None):
     """Local context inventory: classify paths, read real line counts, assemble,
-    then measure freshness from git."""
+    then measure freshness from git.
+
+    With a scope, only context inside that subtree is the area's *own*; context
+    in ancestor directories is added as `inherited` (it does govern the area),
+    and freshness is measured against commits to the scope only."""
+    scope = norm_scope(scope)
     if tracked is not None:
         paths = [p for p in tracked if not any(s in PRUNE_DIRS for s in p.split("/"))]
     else:
@@ -344,21 +448,30 @@ def inventory_context(path, r, tracked):
             for fn in fns:
                 ap = os.path.abspath(os.path.join(dp, fn))
                 paths.append(ap[len(base):].lstrip("/\\").replace("\\", "/") if ap.startswith(base) else fn)
-    c = classify_context_paths(paths)
-    ctx = context_files(c)
-    lines = {p: count_lines(os.path.join(path, p)) for p in ctx}
+
+    inherited = ancestor_context_paths(paths, scope) if scope else []
+    own_paths = [rel_to_scope(p, scope) for p in paths if under_scope(p, scope)] if scope else paths
+    c = classify_context_paths(own_paths)
+    ctx = context_files(c)                                   # scope-relative
+    repo_ctx = [(scope + "/" + p if scope else p) for p in ctx]   # repo-relative
+    lines = {p: count_lines(os.path.join(path, scope, p) if scope
+                            else os.path.join(path, p)) for p in ctx}
     finish_context(r, c, lines)
+    add_inherited_anchors(r, path, inherited)
 
     # --- context freshness (git) -------------------------------------------
     r["context_last_updated_days"] = None
     r["commits_since_context"] = None
-    if r.get("is_git") and ctx:
-        rc, out, _ = sh(["git", "log", "-1", "--format=%ct", "--"] + ctx, cwd=path)
+    all_ctx = repo_ctx + inherited
+    if r.get("is_git") and all_ctx:
+        rc, out, _ = sh(["git", "log", "-1", "--format=%ct", "--"] + all_ctx, cwd=path)
         if rc == 0 and out.strip().isdigit():
             ts = int(out.strip())
             r["context_last_updated_days"] = round((NOW - ts) / DAY, 1)
             since = datetime.fromtimestamp(ts + 1, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-            rc2, out2, _ = sh(["git", "rev-list", "--count", "--since", since, "HEAD"], cwd=path)
+            # scoped: only commits touching this area count against its context
+            rc2, out2, _ = sh(["git", "rev-list", "--count", "--since", since, "HEAD"]
+                              + (["--", scope] if scope else []), cwd=path)
             if rc2 == 0 and out2.strip().isdigit():
                 r["commits_since_context"] = int(out2.strip())
 
@@ -633,6 +746,11 @@ def main():
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dir", help="folder containing cloned repos (scans immediate subdirs)")
     g.add_argument("--org", help="GitHub org/user login (uses gh CLI, no clone)")
+    g.add_argument("--repo", help="a single repo (monorepo mode); pair with --scope to analyze only your area")
+    ap.add_argument("--scope", default="",
+                     help="--repo only: comma-separated subpaths to analyze as separate units "
+                          "(e.g. 'apps/web,libs/ui'). Everything outside them is ignored; "
+                          "CLAUDE.md above a scope is counted as inherited context.")
     ap.add_argument("--out", help="write JSON here instead of stdout")
     ap.add_argument("--limit", type=int, default=300, help="max repos (org mode)")
     ap.add_argument("--include", default="", help="comma-separated name globs to force IN scope (opt-in, ignores cutoff)")
@@ -669,9 +787,30 @@ def main():
         exclude += [p for p in ov.get("exclude", []) if p not in exclude]
         opt_in_only = opt_in_only or bool(ov.get("opt_in_only"))
 
+    scopes = [norm_scope(s) for s in args.scope.split(",") if s.strip()]
+    if scopes and not args.repo:
+        sys.exit("--scope only applies to --repo (a single repo). For a folder of clones use --dir.")
+
     repos = []
     source = {}
-    if args.dir:
+    if args.repo:
+        # --- monorepo mode: one repo, optionally split into per-team areas ---
+        root = os.path.abspath(args.repo)
+        if not os.path.isdir(root):
+            sys.exit(f"not a directory: {root}")
+        repo_name = os.path.basename(root.rstrip(os.sep)) or root
+        source = {"mode": "repo", "path": root, "repo": repo_name, "scopes": scopes}
+        for s in scopes:
+            if not os.path.isdir(os.path.join(root, s)):
+                sys.exit(f"scope not found in {repo_name}: {s}")
+        units = [(s, f"{repo_name}/{s}") for s in scopes] or [("", repo_name)]
+        for i, (s, label) in enumerate(units, 1):
+            print(f"[{i}/{len(units)}] scanning {label}...", file=sys.stderr)
+            repos.append(classify(scan_local_repo(root, label, s)))
+        # an explicitly named repo/area is always analyzed -- no activity cutoff
+        for r in repos:
+            r["in_scope"] = True
+    elif args.dir:
         root = os.path.abspath(args.dir)
         source = {"mode": "local", "path": root}
         if not os.path.isdir(root):

@@ -1,6 +1,6 @@
 ---
 name: context-coverage
-description: Audit how agent context (CLAUDE.md / AGENTS.md / rules / skills) lines up with the code across a set of repositories and generate a self-contained HTML report — a short list of specific "things to check" (context behind the code, thin coverage for the codebase, oversized files, no per-area context), plus per-repo raw metrics and a folder tree comparing folder LOC to context coverage. Use when the user wants to audit context coverage across repos, "which repos are missing CLAUDE.md", "where is our agent context thin or stale", "context coverage across my org / projects folder", or "/context-coverage". Works on a local folder of clones or a whole GitHub org via the gh CLI.
+description: Audit how agent context (CLAUDE.md / AGENTS.md / rules / skills) lines up with the code across a set of repositories and generate a self-contained HTML report — a short list of specific "things to check" (context behind the code, thin coverage for the codebase, oversized files, no per-area context), plus per-repo raw metrics and a folder tree comparing folder LOC to context coverage. Use when the user wants to audit context coverage across repos, "which repos are missing CLAUDE.md", "where is our agent context thin or stale", "context coverage across my org / projects folder", or "/context-coverage". Works on a local folder of clones, a whole GitHub org via the gh CLI, or a single monorepo scoped to just the areas one team owns.
 ---
 
 # context-coverage — audit agent-context coverage across repos
@@ -39,11 +39,36 @@ uv run python scripts/collect.py --org <org-or-user> --out coverage-data.json
 uv run python scripts/render.py coverage-data.json --out coverage-report.html
 ```
 
+### Mode C — one monorepo, scoped to the areas a team owns
+In a monorepo, auditing the whole tree buries a team in code they don't touch. `--repo`
+takes a single repo and `--scope` splits it into the subpaths you care about — each one
+analyzed as its own unit, everything else ignored.
+
+```bash
+uv run python scripts/collect.py --repo <path-to-repo> --scope "apps/web,libs/ui" --out coverage-data.json
+uv run python scripts/render.py coverage-data.json --out coverage-report.html
+```
+- Each scope becomes one row named `<repo>/<scope>` (e.g. `platform/apps/web`).
+- **Every number is restricted to that subtree** — LOC, code files, the folder tree, and
+  (the one that matters most in a monorepo) **git activity and freshness**, filtered by git
+  pathspec. Another team's churn can never make your area look stale.
+- **Context above your scope still counts, and is labelled.** A root `CLAUDE.md` genuinely
+  governs `apps/web`, so it is included as *inherited* context — counted in the coverage
+  numbers, but shown on its own line so an area is never credited with owning it.
+- `--repo` with no `--scope` analyzes the whole repo as one unit (identical numbers to
+  running `--dir` on its parent, filtered to that repo).
+- Named scopes are always analyzed — the 90-day activity cutoff and the throwaway-name
+  filter don't apply, so a scope like `packages/test-utils` is not silently dropped.
+
+**Ask which areas the user owns** rather than guessing. Good sources: the monorepo's
+workspace config (`pnpm-workspace.yaml`, `nx.json`, `go.work`, `Cargo.toml` members),
+a `CODEOWNERS` file, or just the top-level `apps/` and `packages/` directories.
+
 > On this user's machine, always invoke Python as `uv run python` (bare `python` hits the Windows Store stub). The scripts are **pure standard library**, so on any other machine `python3 scripts/collect.py …` works with no install.
 
 ## How to run it (the recipe)
 
-1. **Pick the target.** Ask the user (or infer): a local folder of clones, or a GitHub org/user login. Local mode is richer; org mode needs no clones.
+1. **Pick the target.** Ask the user (or infer): a local folder of clones, a GitHub org/user login, or a single monorepo plus the subpaths one team owns. Local mode is richer; org mode needs no clones. If the target is one big repo shared by several teams, use Mode C and scope it — do not dump the whole tree on one team.
 2. **Collect.** Run `collect.py` with `--dir` or `--org`. Progress prints to stderr, one line per repo. Org mode scans repos **in parallel** (`--jobs`, default 8) — a ~37-repo org takes ~20s (the heaviest repo is the long pole); `--jobs 1` forces sequential. Local mode is seconds.
 3. **Render.** Run `render.py` on the JSON to get the HTML.
 4. **Show it.** Open the HTML, or publish it with the **Artifact tool** for a shareable link (self-contained and CSP-safe — inline CSS/JS, no external assets). Then give the user the top 2–3 **things to check** in chat, with their numbers.
@@ -104,11 +129,10 @@ The report leads with a **Things to check** list (≈3–10 findings, worst-firs
 | `scripts/collect.py` | Scanner → `coverage-data.json`. Stdlib only. `--dir` (local) or `--org` (gh). |
 | `scripts/render.py` | `coverage-data.json` → self-contained HTML report. Stdlib only. |
 | `references/metrics.md` | Full metric + JSON-field reference, and how to extend the model. |
-| `examples/example-report.html` | A **prebaked walkthrough** — 7 synthetic `acme-corp` repos spanning great (deeply nested CLAUDE.md + many skills) / good / okay / bad / bloated context, plus one inactive (out at the default cutoff) and one auto-excluded. Open it to see the report — and the scope filters — without scanning anything. |
-| `examples/generate_example.py` | Regenerates the example data (via the real `collect.py` logic); re-render with `render.py` after. |
 
 ## Notes & limits
 
+- **Monorepo scoping is local-mode only** — `--scope` needs real git history, so pair it with `--repo` on a clone (org mode cannot pathspec-filter).
 - **Org mode LOC is an estimate** (blob bytes ÷ ~38), flagged with `*`. For exact LOC, clone and use `--dir`.
 - Org mode skips total-commit and contributor counts (too many API calls); it uses `pushedAt` for recency and a 90-day commit window.
 - A repo the scanner can't read (no default branch, empty, API error) still appears, with an `errors` note in the JSON.
