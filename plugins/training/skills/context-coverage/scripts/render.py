@@ -50,6 +50,7 @@ body{background:var(--plane);color:var(--ink);font-family:system-ui,-apple-syste
 h1{font-size:26px;font-weight:680;letter-spacing:-.02em;margin:0 0 6px}
 .sub{color:var(--ink-2);font-size:14px;margin:0;max-width:76ch}
 .meta{color:var(--muted);font-size:12.5px;margin-top:6px}
+.muted{color:var(--muted)}
 .themebtn{position:fixed;top:14px;right:14px;z-index:10;background:var(--surface);border:1px solid var(--border);color:var(--ink-2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit}
 section{margin-top:30px}
 h2{font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
@@ -180,7 +181,9 @@ function hover(node,html){node.style.cursor='default';
 
 // ---- scope: which repos are analyzed. Starts from the collector's in_scope;
 // the reader can re-dial it (cutoff / self-select / exclude) and it persists.
-const SKEY='ctxcov-scope:'+(SRC.mode==='local'?SRC.path:SRC.org);
+const SKEY='ctxcov-scope:'+(SRC.mode==='org'?SRC.org:SRC.path);
+// monorepo mode: each analyzed unit is an area of one repo, not a repo.
+const IS_REPO=SRC.mode==='repo', UNIT=IS_REPO?'area':'repository';
 let SCOPE=new Set();
 (function(){let saved=null;try{saved=JSON.parse(localStorage.getItem(SKEY)||'null');}catch(e){}
   if(Array.isArray(saved)&&saved.length)saved.forEach(n=>SCOPE.add(n));
@@ -189,7 +192,7 @@ function saveScope(){try{localStorage.setItem(SKEY,JSON.stringify([...SCOPE]));}
 let scoped=[];
 function recomputeScope(){scoped=R.filter(r=>SCOPE.has(r.name));}
 document.getElementById('metaline').textContent=
-  `Generated ${DOC.generated_at} · ${SRC.mode==='local'?('local: '+SRC.path):('org: '+SRC.org+' (via gh)')} · ${R.length} repositories scanned`;
+  `Generated ${DOC.generated_at} · ${IS_REPO?('repo: '+SRC.repo+((SRC.scopes||[]).length?' · scoped to '+SRC.scopes.join(', '):'')):SRC.mode==='local'?('local: '+SRC.path):('org: '+SRC.org+' (via gh)')} · ${R.length} ${UNIT=='area'?'areas':'repositories'} scanned`;
 
 // ---- governance: for a repo's dir tree, find nearest governing context ----
 function annotate(repo){
@@ -240,13 +243,13 @@ function computeFindings(){
           : [['LOC',kloc(r.loc)+est(r)],['context lines',r.total_context_lines],['nested / rules','none']]});
     }
     // oversized single file
-    (r.context_anchors||[]).forEach(a=>{if(a.kind!=='rules'&&a.lines>PB.oversized_claude_lines)
+    (r.context_anchors||[]).forEach(a=>{if(a.kind!=='rules'&&!a.inherited&&a.lines>PB.oversized_claude_lines)
       F.push({repo:nm,sev:'warn',kind:'Long context file',mag:a.lines,
         title:`<span class="rn">${nm}</span>: <code>/${a.path}</code> is ${a.lines} lines`,
         detail:`Over ${PB.oversized_claude_lines} lines — long enough that an agent may not attend to all of it. Consider splitting into nested per-area files.`,
         chips:[['file length',a.lines+' lines'],['repo LOC',kloc(r.loc)+est(r)]]});});
     // single root file governing a large multi-folder repo
-    if(r.loc>=10000 && !r.nested_claude_count && !r.has_rules){
+    if(r.loc>=10000 && !r.nested_claude_count && !(r.own_rules!==undefined?r.own_rules:r.has_rules)){
       annotate(r);const kids=(r.dir_tree.children||[]).filter(c=>c.loc>=PB.dense_loc);
       if(kids.length>=2)F.push({repo:nm,sev:'warn',kind:'No per-area context',mag:r.loc||0,
         title:`<span class="rn">${nm}</span>: ${kids.length} large folders, all under one root context file`,
@@ -254,13 +257,32 @@ function computeFindings(){
         chips:[['large folders',kids.length],['nested context','0'],['root ctx lines',r.total_context_lines]]});
     }
     // skills but no root CLAUDE.md
-    if((r.skills_count||0)>=3 && !r.has_claude_md){
-      F.push({repo:nm,sev:'warn',kind:'Skills without a front door',mag:r.skills_count,
-        title:`<span class="rn">${nm}</span>: ${r.skills_count} skills but no root CLAUDE.md`,
+    const ownSkills=r.own_skills_count!==undefined?r.own_skills_count:(r.skills_count||0);
+    const frontDoor=r.has_front_door!==undefined?r.has_front_door:r.has_claude_md;
+    if(ownSkills>=3 && !frontDoor){
+      F.push({repo:nm,sev:'warn',kind:'Skills without a front door',mag:ownSkills,
+        title:`<span class="rn">${nm}</span>: ${ownSkills} skills but no root CLAUDE.md`,
         detail:`Plenty of skills, but nothing at the repo root to orient an agent to them.`,
-        chips:[['skills',r.skills_count],['root CLAUDE.md','none']]});
+        chips:[['skills',ownSkills],['root CLAUDE.md','none']]});
+    }
+    if(IS_REPO && r.scope && r.owns_no_context && r.loc>=PB.dense_loc){
+      F.push({repo:nm,sev:'warn',kind:'No context of its own',mag:r.loc||0,
+        title:`<span class="rn">${nm}</span>: ${kloc(r.loc)} LOC with no context of its own`,
+        detail:`Everything orienting an agent here lives above this area — ${fmt(r.inherited_context_lines||0)} inherited lines written for the whole repo. Worth a look at whether this area needs its own.`,
+        chips:[['LOC',kloc(r.loc)],['own context lines','0'],['inherited lines',fmt(r.inherited_context_lines||0)]]});
     }
   });
+  if(IS_REPO){
+    const seen=new Set();
+    scoped.forEach(r=>(r.context_anchors||[]).forEach(a=>{
+      if(!a.inherited||a.kind==='rules'||a.lines<=PB.oversized_claude_lines||seen.has(a.path))return;
+      seen.add(a.path);
+      F.push({repo:SRC.repo,sev:'warn',kind:'Long context file',mag:a.lines,
+        title:`<span class="rn">${SRC.repo}</span>: <code>/${a.path}</code> is ${a.lines} lines`,
+        detail:`Over ${PB.oversized_claude_lines} lines — long enough that an agent may not attend to all of it. It governs every area scanned here, so splitting it into nested per-area files would help all of them.`,
+        chips:[['file length',a.lines+' lines'],['areas it governs',scoped.length]]});
+    }));
+  }
   const rank={crit:0,warn:1}; F.sort((a,b)=>(rank[a.sev]-rank[b.sev])||b.mag-a.mag);
   return F;
 }
@@ -269,7 +291,7 @@ function buildFindings(F){
   const s=el('section');
   s.append(el('h2',{},`Things to check — ${F.length}`));
   s.append(el('p',{class:'h2sub'},'Specific places where the context and the code look out of step. Each is a prompt to look, not a verdict — some will be perfectly reasonable once you check. Ordered most-pressing first.'));
-  if(!F.length){s.append(el('div',{class:'finding'},el('div',{class:'fbody'},'Nothing stood out across the analyzed repos.')));mount.append(s);return;}
+  if(!F.length){s.append(el('div',{class:'finding'},el('div',{class:'fbody'},`Nothing stood out across the analyzed ${UNIT=='area'?'areas':'repos'}.`)));mount.append(s);return;}
   F.slice(0,10).forEach((f,i)=>{
     const d=el('details',{class:'finding '+(f.sev==='crit'?'crit':'warn')});
     const sm=el('summary');
@@ -328,9 +350,16 @@ function repoPanel(r){
   body.append(stats);
   // anchors
   const anchors=(r.context_anchors||[]);
-  body.append(el('div',{class:'anchors',html:anchors.length
-    ? 'Context files: '+anchors.map(a=>`<code>/${a.path}</code>${a.kind==='rules'?' (rules)':' ('+a.lines+' ln)'}`).join(' · ')
-    : '<b>No context files.</b>'}));
+  // Inherited = a context file above this area that still governs it. Shown
+  // apart so an area isn't credited with context its own folder doesn't hold.
+  const own=anchors.filter(a=>!a.inherited), inh=anchors.filter(a=>a.inherited);
+  const fmtA=a=>`<code>/${a.path}</code>${a.kind==='rules'?' (rules)':' ('+a.lines+' ln)'}`;
+  body.append(el('div',{class:'anchors',html:own.length
+    ? 'Context files: '+own.map(fmtA).join(' · ')
+    : (inh.length?'<b>No context files of its own.</b>':'<b>No context files.</b>')}));
+  if(inh.length)body.append(el('div',{class:'anchors',
+    html:`Inherited from above <span class="muted">(${fmt(r.inherited_context_lines||0)} lines, governs this area)</span>: `
+         +inh.map(fmtA).join(' · ')}));
   // tree
   if((r.dir_tree.children||[]).length){body.append(tree(r));
     const leg=el('div',{class:'legend'});
@@ -426,7 +455,7 @@ function buildScope(){
   if(R.length<=1)return; // nothing to pick from (e.g. a single hand-selected repo)
   const panel=el('details',{class:'scope',open:''});
   const cnt=el('span',{class:'cnt'});
-  panel.append(el('summary',{},[el('span',{class:'chev'},'▸'),document.createTextNode('Which repos to analyze'),cnt]));
+  panel.append(el('summary',{},[el('span',{class:'chev'},'▸'),document.createTextNode(IS_REPO?'Which areas to analyze':'Which repos to analyze'),cnt]));
   const body=el('div',{class:'scopebody'});
   const setSel=names=>{SCOPE=new Set(names);saveScope();drawList();updateScopeCount();renderReport();};
   const tools=el('div',{class:'scoptools'});
@@ -460,7 +489,9 @@ function buildScope(){
 function exportScope(){
   const names=[...SCOPE].sort();
   const txt=`# Re-run the scan on exactly this selection:\n`+
-    `#   collect.py --org ${SRC.mode==='org'?SRC.org:'<org>'} --repos "${names.join(',')}"\n`+
+    (IS_REPO
+      ? `#   collect.py --repo ${SRC.path} --scope "${names.map(n=>n.split('/').slice(1).join('/')).filter(Boolean).join(',')}"\n`
+      : `#   collect.py --org ${SRC.mode==='org'?SRC.org:'<org>'} --repos "${names.join(',')}"\n`)+
     `# or as an overrides file (include forces a repo in regardless of the cutoff):\n`+
     JSON.stringify({include:names,exclude:[]},null,2)+'\n';
   const a=el('a',{href:URL.createObjectURL(new Blob([txt],{type:'text/plain'})),download:'scope-selection.txt'});
@@ -474,7 +505,7 @@ function renderReport(){
   recomputeScope();
   reportEl.textContent='';
   mount=reportEl;
-  if(!scoped.length){reportEl.append(el('section',{},el('p',{class:'h2sub'},'No repos selected — pick some in the panel above.')));return;}
+  if(!scoped.length){reportEl.append(el('section',{},el('p',{class:'h2sub'},`No ${UNIT=='area'?'areas':'repos'} selected — pick some in the panel above.`)));return;}
   buildTable();buildFindings(computeFindings());buildRepos();
 }
 (function init(){
