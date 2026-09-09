@@ -6,13 +6,28 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | Description |
 | :----- | :---------- |
-| [`training`](./plugins/training) | Skills for building skills (finding opportunities, improving skills). |
+| [`training`](./plugins/training) | Skills for building skills — finding what to write, improving and evaluating what you have — plus `context-coverage`, which audits how well your agent context (CLAUDE.md / AGENTS.md / rules / skills) actually covers your code. |
+
+### What's in `training`
+
+| Skill | Does |
+| :---- | :--- |
+| `context-coverage` | Audits agent-context coverage across your repos — or across one monorepo, scoped to just the areas your team owns — and renders a self-contained HTML report: things worth checking, per-repo metrics, and a folder tree colored by whether a context file governs it. |
+| `finding-skill-opportunities` | Mines git history, existing automation and session transcripts for recurring procedures worth turning into a skill. |
+| `skill-improver` | Reviews an existing skill for scope, description, structure and leanness. |
+| `skill-eval-builder` | Scaffolds an `evals/` folder and scorecard for a skill. |
 
 ## Install
 
 ```shell
 /plugin marketplace add devclarityai/devclarity-marketplace
 /plugin install training@devclarity-marketplace
+```
+
+Then run a skill by name, e.g.:
+
+```shell
+/training:context-coverage
 ```
 
 Refresh later with `/plugin marketplace update`.
@@ -48,5 +63,5 @@ devclarity-marketplace/
 └── plugins/
     └── training/
         ├── .claude-plugin/plugin.json
-        └── skills/<skill>/{SKILL.md, scripts/}
+        └── skills/<skill>/{SKILL.md, scripts/, references/}
 ```
