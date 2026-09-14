@@ -60,8 +60,13 @@ devclarity-marketplace/
 ├── .claude-plugin/
 │   └── marketplace.json     # marketplace catalog
 ├── .gitattributes           # LF line endings for *.sh (Windows safety)
+├── LICENSE                  # MIT
 └── plugins/
     └── training/
         ├── .claude-plugin/plugin.json
         └── skills/<skill>/{SKILL.md, scripts/, references/}
 ```
+
+## License
+
+[MIT](./LICENSE) © DevClarity

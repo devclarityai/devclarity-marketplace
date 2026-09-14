@@ -6,5 +6,6 @@
     "name": "DevClarity",
     "email": "will@devclarity.ai"
   },
-  "homepage": "https://devclarity.ai"
+  "homepage": "https://devclarity.ai",
+  "license": "MIT"
 }
