@@ -1,6 +1,6 @@
 ---
 name: skill-improver
-description: Use when reviewing, grading, critiquing, or improving an existing Claude Code skill or SKILL.md — checks name/scope, invocation description, structure, leanness, and surfaces concrete opportunities to add references, scripts, and determinism.
+description: Use when reviewing, grading, critiquing, or improving an existing agent skill or SKILL.md — checks name/scope, invocation description, structure, leanness, and surfaces concrete opportunities to add references, scripts, and determinism.
 ---
 
 # Skill Improver
@@ -18,9 +18,9 @@ Make an existing skill better. The goal is **helpful improvement, not a grade** 
 
 ## Steps
 
-1. **Gather mechanical facts deterministically:**
+1. **Gather mechanical facts deterministically** (the script path is relative to this skill's own directory — run it from that base directory):
    ```bash
-   bash "${CLAUDE_SKILL_DIR}/scripts/skill-lint.sh" <skill-dir-or-SKILL.md>
+   bash scripts/skill-lint.sh <skill-dir-or-SKILL.md>
    ```
    Reports frontmatter validity, name format, description shape, SKILL.md size, preferred sections, and referenced vs orphaned files. Treat `[FLAG]`s as leads, not verdicts.
 2. **Read the SKILL.md and bundled files yourself** — the linter can't judge clarity, scope, or correctness.
