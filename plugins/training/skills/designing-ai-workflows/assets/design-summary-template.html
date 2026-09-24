@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workflow Design Summary: [Workflow Name]</title>
+<!--
+  FILL-IN INSTRUCTIONS (delete this comment block when done):
+  - Replace all [bracketed] placeholders. Mark answers inferred from
+    conversation (not chosen by the user) with <span class="inferred">(inferred)</span>.
+  - Section order is fixed: The task -> Structure -> Context -> Alignment ->
+    Verification -> Feedback -> Files to generate.
+  - Structure holds the visual flow: one .skill-col per skill (single-skill
+    workflows: delete the second column and the .handoff block). One .phase
+    per step, in order, each with exactly one freedom badge. Checkpoints are
+    .checkpoint blocks placed where they fire; a conditional check-in is a
+    .conditional block nested inside the phase it interrupts.
+  - Three structural devices, do not mix them: a .skill-col is a SEPARATE SKILL
+    (own directory, separately invocable); a .subagent is a STEP INSIDE a skill
+    that runs in its own window and returns a summary; a .handoff block is the
+    ARTIFACT crossing a skill boundary. A subagent never gets its own column
+    and never gets a .handoff arrow.
+  - A parallel fan-out is ONE .subagent block carrying one .sa-lens chip per
+    perspective, placed in the phase that spawns it - not one block per agent.
+    Review fan-outs are one chip per lens, read-only, findings only. A fan-out
+    over N items is one chip per item class (per tenant, per service): read-only
+    when it gathers, and it may write when it does the work. Say which in the .sa-tag.
+  - Freedom badges: .b-high, .b-med, .b-low, or .b-mix for a phase that is
+    part high, part low. One badge per phase.
+  - No emojis anywhere. Use the styled text labels already in the markup.
+  - Save as design-summary.html in the project; this file is the living
+    design document; Step 8 updates it after scaffolding.
+-->
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #ffffff; --ink: #1a2233; --muted: #5b6678;
+    --line: #e3e7ee; --accent: #2563eb; --accent-soft: #eaf1fe;
+    --skill1: #7c3aed; --skill1-soft: #f3eeff;
+    --skill2: #0d9488; --skill2-soft: #e6f7f5;
+    --check: #d97706; --check-soft: #fef3e2;
+    --med-soft: #fef9c3;
+    --high: #16a34a; --med: #d97706; --low: #dc2626; --artifact: #2563eb;
+    --agent: #475569; --agent-soft: #f1f5f9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--ink); line-height: 1.55; padding: 40px 24px 80px; }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; letter-spacing: -0.02em; }
+  .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 1.02rem; }
+  h2 { font-size: 1.15rem; margin: 40px 0 14px; padding-bottom: 8px;
+       border-bottom: 2px solid var(--line); letter-spacing: -0.01em; }
+  h2 .num { display: inline-flex; align-items: center; justify-content: center;
+            width: 26px; height: 26px; border-radius: 8px; background: var(--accent-soft);
+            color: var(--accent); font-size: 0.85rem; margin-right: 10px; vertical-align: -4px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 22px; box-shadow: 0 1px 3px rgba(20,30,55,0.05); }
+  .task-strip { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .task-strip .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
+                       color: var(--muted); margin-bottom: 4px; }
+  .task-strip .value { font-weight: 600; font-size: 0.98rem; }
+  .pipeline { display: grid; grid-template-columns: 1fr 56px 1fr; align-items: stretch; }
+  .skill-col { border-radius: 14px; padding: 18px; border: 2px solid; }
+  .skill-col.s1 { border-color: var(--skill1); background: var(--skill1-soft); }
+  .skill-col.s2 { border-color: var(--skill2); background: var(--skill2-soft); }
+  .skill-title { font-weight: 700; font-size: 1.02rem; margin-bottom: 2px; }
+  .skill-col.s1 .skill-title { color: var(--skill1); }
+  .skill-col.s2 .skill-title { color: var(--skill2); }
+  .skill-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; }
+  .phase { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+           padding: 10px 12px; margin-bottom: 10px; }
+  .phase .p-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .phase .p-name { font-weight: 600; font-size: 0.92rem; }
+  .phase .p-desc { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+  .phase .p-out { font-size: 0.78rem; margin-top: 6px; color: var(--artifact); font-weight: 600; }
+  .phase .p-out::before { content: "out: "; text-transform: uppercase; font-size: 0.68rem; }
+  .badge { display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 2px 8px;
+           border-radius: 999px; white-space: nowrap; }
+  .b-high { background: #e7f6ec; color: var(--high); }
+  .b-med  { background: var(--med-soft); color: #a16207; }
+  .b-low  { background: #fdeaea; color: var(--low); }
+  .b-mix  { background: linear-gradient(90deg, #e7f6ec 50%, #fdeaea 50%); color: var(--ink); }
+  .checkpoint { background: var(--check-soft); border: 1.5px dashed var(--check); border-radius: 10px;
+                padding: 9px 12px; margin-bottom: 10px; font-size: 0.85rem; }
+  .cp-tag { font-weight: 700; color: var(--check); font-size: 0.72rem;
+            text-transform: uppercase; letter-spacing: 0.06em; }
+  .conditional { margin-top: 4px; background: #fff; border: 1.5px dashed var(--check);
+                 border-radius: 10px; padding: 9px 12px; font-size: 0.82rem; }
+  .subagent { position: relative; margin: 8px 0 0 18px; background: var(--agent-soft);
+              border: 1.5px dashed var(--agent); border-radius: 10px; padding: 8px 11px; font-size: 0.82rem; }
+  .subagent::before { content: ""; position: absolute; left: -12px; top: 15px; width: 12px;
+                      border-top: 1.5px dashed var(--agent); }
+  .sa-tag { font-weight: 700; color: var(--agent); font-size: 0.7rem;
+            text-transform: uppercase; letter-spacing: 0.06em; }
+  .sa-ret { margin-top: 4px; color: var(--agent); font-weight: 600; }
+  .sa-ret::before { content: "returns: "; text-transform: uppercase; font-size: 0.68rem; font-weight: 700; }
+  .sa-lenses { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .sa-lens { background: var(--card); border: 1px solid var(--agent); border-radius: 999px;
+             padding: 2px 9px; font-size: 0.74rem; }
+  .handoff { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .handoff .arrow { font-size: 1.6rem; color: var(--artifact); }
+  .handoff .h-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 0.7rem;
+                      font-weight: 700; color: var(--artifact); text-transform: uppercase;
+                      letter-spacing: 0.08em; text-align: center; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 0.8rem; color: var(--muted); }
+  .legend span.swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+                        margin-right: 5px; vertical-align: -1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th { text-align: left; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--muted); padding: 8px 12px; border-bottom: 2px solid var(--line); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .dest { font-weight: 700; white-space: nowrap; }
+  .dest.instructions { color: #b45309; } .dest.skillmd { color: var(--accent); }
+  .dest.refs { color: var(--skill1); } .dest.assets { color: var(--skill2); }
+  .dest.scripts { color: #be185d; }
+  code { background: #eef1f6; padding: 1px 6px; border-radius: 5px; font-size: 0.84em; }
+  .ladder { display: flex; flex-direction: column-reverse; max-width: 640px; }
+  .rung { display: flex; align-items: center; gap: 14px; padding: 12px 16px;
+          border: 1px solid var(--line); background: var(--card); }
+  .rung:first-child { border-radius: 0 0 12px 12px; }
+  .rung:last-child { border-radius: 12px 12px 0 0; }
+  .rung + .rung { border-bottom: none; }
+  .rung .strength { font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: 0.06em; width: 86px; flex-shrink: 0; }
+  .rung.r1 .strength { color: var(--muted); } .rung.r2 .strength { color: var(--med); }
+  .rung.r3 .strength { color: var(--high); }
+  .rung .r-body b { font-size: 0.92rem; }
+  .rung .r-body div { font-size: 0.82rem; color: var(--muted); }
+  .struggle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .struggle .s-from { font-weight: 700; color: var(--low); font-size: 0.9rem; }
+  .struggle .s-from::before { content: "STRUGGLE: "; font-size: 0.7rem; letter-spacing: 0.05em; }
+  .struggle .s-arrow { color: var(--muted); margin: 4px 0; font-size: 0.85rem; }
+  .struggle .s-to { font-weight: 600; font-size: 0.9rem; }
+  .struggle .s-detail { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+  .loop-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .loop-card .l-what { font-weight: 600; font-size: 0.9rem; }
+  .loop-card .l-arrow { color: var(--accent); margin: 6px 0; font-size: 0.95rem; }
+  .loop-card .l-where { font-size: 0.85rem; }
+  .loop-card .l-note { font-size: 0.79rem; color: var(--muted); margin-top: 6px; }
+  .files-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .file-list { list-style: none; }
+  .file-list li { padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.88rem; display: flex; gap: 10px; }
+  .file-list li:last-child { border-bottom: none; }
+  .file-list .why { color: var(--muted); font-size: 0.82rem; }
+  .ftag { flex-shrink: 0; font-size: 0.68rem; font-weight: 700; padding: 2px 7px;
+          border-radius: 5px; height: fit-content; margin-top: 2px; }
+  .ftag.skill { background: var(--accent-soft); color: var(--accent); }
+  .ftag.ref { background: var(--skill1-soft); color: var(--skill1); }
+  .ftag.asset { background: var(--skill2-soft); color: var(--skill2); }
+  .ftag.script { background: #fce7f3; color: #be185d; }
+  .ftag.agent { background: var(--agent-soft); color: var(--agent); }
+  .note { background: var(--check-soft); border-left: 4px solid var(--check);
+          border-radius: 8px; padding: 12px 16px; font-size: 0.88rem; margin-top: 14px; }
+  .inferred { font-size: 0.72rem; color: var(--muted); font-style: italic; }
+  @media (max-width: 800px) {
+    .pipeline { grid-template-columns: 1fr; }
+    .handoff { flex-direction: row; padding: 10px 0; }
+    .handoff .h-label { writing-mode: horizontal-tb; transform: none; }
+    .task-strip, .struggle-grid, .loop-grid, .files-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Workflow Design Summary: [Workflow Name]</h1>
+  <p class="subtitle">[Topic or use case in one sentence: what the workflow does and what one run produces.]</p>
+</header>
+
+<!-- 1. THE TASK -->
+<h2><span class="num">1</span>The task</h2>
+<div class="task-strip">
+  <div class="card"><div class="label">Unit of work per run</div><div class="value">[...]</div></div>
+  <div class="card"><div class="label">"Done" looks like</div><div class="value">[final artifact]</div></div>
+  <div class="card"><div class="label">[Third frame answer]</div><div class="value">[e.g., state of existing docs]</div></div>
+</div>
+
+<!-- 2. STRUCTURE: skill boundaries, flow, freedom, determinism -->
+<h2><span class="num">2</span>Structure: [N] skill(s), [M] subagent(s), flow, and freedom</h2>
+<div class="pipeline">
+
+  <div class="skill-col s1">
+    <div class="skill-title">Skill 1: [skill-one-name]</div>
+    <div class="skill-sub">[One line: what it does, and if split, why it owns its own context window.]</div>
+
+    <div class="phase">
+      <div class="p-head"><span class="p-name">1 · [Step name]</span><span class="badge b-high">High</span></div>
+      <div class="p-desc">[What happens. Note any references/, assets/, or scripts/ this step uses.]</div>
+      <div class="p-out">[output artifact; delete this line if none]</div>
+    </div>
+
+    <div class="checkpoint">
+      <div class="cp-tag">STOP: Checkpoint [n]</div>
+      <div>[What the human reviews and approves here.]</div>
+    </div>
+
+    <!-- A phase that spawns ONE subagent. Delete this .phase if the design spawns none. -->
+    <div class="phase">
+      <div class="p-head"><span class="p-name">2 · [Step name]</span><span class="badge b-high">High</span></div>
+      <div class="p-desc">[What happens in the main thread.]</div>
+      <div class="subagent">
+        <div class="sa-tag">SUBAGENT: isolated window</div>
+        <div>[What it is told to do, and what it is given.]</div>
+        <div class="sa-ret">[the summary or file it hands back]</div>
+      </div>
+      <div class="p-out">[output artifact; delete if none]</div>
+    </div>
+
+    <!-- A phase that spawns a PARALLEL FAN-OUT. One block, one chip per lens. Delete if unused. -->
+    <div class="phase">
+      <div class="p-head"><span class="p-name">3 · [Review step]</span><span class="badge b-med">Medium</span></div>
+      <div class="p-desc">[What is reviewed, and who synthesizes the findings.]</div>
+      <div class="subagent">
+        <div class="sa-tag">FAN-OUT: [n] parallel subagents, [read-only | writes, one item each]</div>
+        <div>[What each one reviews, and against what.]</div>
+        <div class="sa-lenses">
+          <span class="sa-lens">[lens 1]</span><span class="sa-lens">[lens 2]</span><span class="sa-lens">[lens 3]</span>
+        </div>
+        <div class="sa-ret">[findings or one result per item, and the orchestrator synthesizes]</div>
+      </div>
+    </div>
+
+    <!-- more .phase / .checkpoint blocks as needed -->
+  </div>
+
+  <!-- DELETE .handoff and the second .skill-col for single-skill workflows -->
+  <div class="handoff">
+    <div class="arrow">&#8594;</div>
+    <div class="h-label">[handoff artifact]</div>
+  </div>
+
+  <div class="skill-col s2">
+    <div class="skill-title">Skill 2: [skill-two-name]</div>
+    <div class="skill-sub">[One line, typically: fresh context, reads only the handoff artifact.]</div>
+
+    <div class="phase">
+      <div class="p-head"><span class="p-name">1 · [Step name]</span><span class="badge b-med">Medium</span></div>
+      <div class="p-desc">[...]</div>
+      <div class="conditional"><span class="cp-tag">STOP: conditional</span> [If the design has an in-flight check-in rule, describe its trigger here; otherwise delete.]</div>
+    </div>
+
+    <!-- more .phase / .checkpoint blocks as needed -->
+  </div>
+</div>
+
+<div class="legend">
+  <span><span class="swatch" style="background:#e7f6ec;"></span>High freedom: prose and heuristics</span>
+  <span><span class="swatch" style="background:var(--med-soft);"></span>Medium: template-driven</span>
+  <span><span class="swatch" style="background:#fdeaea;"></span>Low: strict template or exact steps</span>
+  <span><span class="swatch" style="background:var(--check-soft);border:1.5px dashed var(--check);"></span>STOP: checkpoint (human in the loop)</span>
+  <span><span class="swatch" style="background:var(--agent-soft);border:1.5px dashed var(--agent);"></span>Subagent: own window, returns a summary</span>
+  <span style="color:var(--artifact);font-weight:600;">OUT: output artifact</span>
+</div>
+
+<div class="note"><b>Determinism:</b> [scripts/ and hooks from the design: what code does instead of the model, e.g. "scripts/parse-x.sh extracts Y so the model annotates rather than reads". Delete if none.]</div>
+
+<!-- 3. CONTEXT -->
+<h2><span class="num">3</span>Context placement</h2>
+<div class="card" style="padding: 6px 0;">
+  <table>
+    <tr><th>Context item</th><th>Destination</th><th>Why there</th></tr>
+    <tr><td>[project-wide conventions/idioms]</td><td class="dest instructions">Project instructions</td><td>All the user's AI work needs it; proposed separately, not skill content</td></tr>
+    <tr><td>[every-run, workflow-specific knowledge]</td><td class="dest skillmd">SKILL.md</td><td>Needed every run</td></tr>
+    <tr><td>[some-runs knowledge]</td><td class="dest refs">references/</td><td>[when it's loaded; note if it's a feedback deposit box]</td></tr>
+    <tr><td>[templates / example pairs]</td><td class="dest assets">assets/</td><td>[which medium/low-freedom output it shapes]</td></tr>
+    <tr><td>[deterministic step]</td><td class="dest scripts">scripts/</td><td>[what code does instead of the model]</td></tr>
+    <tr><td>[subagent prompt skeleton]</td><td class="dest refs">references/</td><td>Read only when that step spawns the agent; too long for SKILL.md; delete if none</td></tr>
+  </table>
+</div>
+
+<!-- 4. ALIGNMENT -->
+<h2><span class="num">4</span>Alignment: struggle points and checkpoints</h2>
+<div class="struggle-grid">
+  <div class="card struggle">
+    <div class="s-from">[where AI struggles on this task]</div>
+    <div class="s-arrow">fixed by</div>
+    <div class="s-to">[the focusing artifact / script / mandatory section]</div>
+    <div class="s-detail">[how the fix forces the diligence]</div>
+  </div>
+  <!-- one card per struggle point -->
+</div>
+<div class="note"><b>Checkpoints:</b> [list each: where it fires, what the human reviews, co-build vs. approve. Include any conditional check-in rules.]</div>
+
+<!-- 5. VERIFICATION -->
+<h2><span class="num">5</span>Verification ladder</h2>
+<div class="ladder">
+  <div class="rung r1"><div class="strength">Minimum bar</div>
+    <div class="r-body"><b>[compiles / lints / existing tests]</b><div>[one line]</div></div></div>
+  <div class="rung r2"><div class="strength">Stronger</div>
+    <div class="r-body"><b>[tests vs. acceptance criteria / AI-run manual tests]</b><div>[one line]</div></div></div>
+  <div class="rung r3"><div class="strength">Strongest</div>
+    <div class="r-body"><b>[review artifact / adversarial review]</b><div>[one line]</div></div></div>
+</div>
+<div class="note"><b>Multiple perspectives (fan-out):</b> [yes: name each perspective, what it is given, and what it returns; this must match the .subagent fan-out block in Section 2. Or no: why a single pass suffices].</div>
+
+<!-- 6. FEEDBACK -->
+<h2><span class="num">6</span>Feedback: every run improves the next</h2>
+<div class="loop-grid">
+  <div class="card loop-card">
+    <div class="l-what">[what's learned]</div>
+    <div class="l-arrow">written to</div>
+    <div class="l-where"><code>[references/file.md | docs system | runbook]</code></div>
+    <div class="l-note">[why it compounds]</div>
+  </div>
+  <!-- one card per feedback loop -->
+</div>
+
+<!-- 7. FILES -->
+<h2><span class="num">7</span>Files to generate</h2>
+<div class="files-grid">
+  <div class="card">
+    <div class="skill-title" style="color:var(--skill1); margin-bottom:10px;">[skill-one-name]</div>
+    <ul class="file-list">
+      <li><span class="ftag skill">SKILL</span><span><b>SKILL.md</b><br><span class="why">[design decision it implements]</span></span></li>
+      <li><span class="ftag ref">REF</span><span><b>references/[file].md</b><br><span class="why">[...]</span></span></li>
+      <li><span class="ftag asset">ASSET</span><span><b>assets/[file].md</b><br><span class="why">[...]</span></span></li>
+      <li><span class="ftag script">SCRIPT</span><span><b>scripts/[file]</b><br><span class="why">[...]</span></span></li>
+      <li><span class="ftag agent">AGENT</span><span><b>references/agent-prompts.md</b><br><span class="why">[which subagent(s) it carries; delete if the design spawns none, or if the prompt is short enough to sit inline in SKILL.md]</span></span></li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="skill-title" style="color:var(--skill2); margin-bottom:10px;">[skill-two-name; delete card if single skill]</div>
+    <ul class="file-list">
+      <li><span class="ftag skill">SKILL</span><span><b>SKILL.md</b><br><span class="why">[...]</span></span></li>
+    </ul>
+    <div class="note" style="margin-top:16px;">[Proposed project-instructions additions, and any agent definition file, both handled outside the skill, since a bare skill directory can't install them into the user's project. Delete if none.]</div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
