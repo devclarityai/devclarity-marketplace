@@ -10,6 +10,7 @@ DevClarity training skills and tooling for Claude Code.
 | [`finding-skill-opportunities`](./skills/finding-skill-opportunities) | Auditing a codebase to decide what skills to write — mines git history and existing automation for recurring, multi-step procedures worth capturing. `/training:finding-skill-opportunities` |
 | [`skill-improver`](./skills/skill-improver) | Reviewing or improving an existing skill — checks name/scope, description, structure, and leanness, and surfaces concrete references/scripts/determinism opportunities. `/training:skill-improver` |
 | [`skill-eval-builder`](./skills/skill-eval-builder) | Setting up evals for a skill — scaffolds an `evals/` folder + scorecard measuring whether it fires, output is valid, is in time budget, or (optional) whether its classification gate labels inputs correctly. `/training:skill-eval-builder` |
+| [`designing-ai-workflows`](./skills/designing-ai-workflows) | Designing a new AI-enabled workflow or skill for a task type (integrations, modernization, maintenance, testing, and so on). Interviews you through context, structure, alignment, verification, and feedback, then scaffolds the skill(s) and a living design-summary HTML with a visual flow map. `/training:designing-ai-workflows` |
 
 ## Requirements & portability
 

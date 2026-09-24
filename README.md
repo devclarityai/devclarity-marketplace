@@ -6,7 +6,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | Description |
 | :----- | :---------- |
-| [`training`](./plugins/training) | Skills for building skills — finding what to write, improving and evaluating what you have — plus `context-coverage`, which audits how well your agent context (CLAUDE.md / AGENTS.md / rules / skills) actually covers your code. |
+| [`training`](./plugins/training) | Skills for building skills — finding what to write, designing new workflows, improving and evaluating what you have — plus `context-coverage`, which audits how well your agent context (CLAUDE.md / AGENTS.md / rules / skills) actually covers your code. |
 
 ### What's in `training`
 
@@ -16,6 +16,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 | `finding-skill-opportunities` | Mines git history, existing automation and session transcripts for recurring procedures worth turning into a skill. |
 | `skill-improver` | Reviews an existing skill for scope, description, structure and leanness. |
 | `skill-eval-builder` | Scaffolds an `evals/` folder and scorecard for a skill. |
+| `designing-ai-workflows` | Interviews you through the design of a new AI-enabled workflow, drafting a skeleton early and refining it phase by phase, then scaffolds the result as one or more skills plus a design-summary HTML with a visual flow map. |
 
 ## Install
 
