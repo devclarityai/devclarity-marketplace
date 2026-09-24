@@ -97,7 +97,7 @@ fi
 
 # ---------------------------------------------------------------------------
 section "EXISTING SKILLS (avoid proposing duplicates)"
-have '(^|/)skills/.*/SKILL\.md$|(^|/)SKILL\.md$|(^|/)\.claude/(commands|skills)/' | sed 's/^/  /' | grep . || echo "(none found)"
+have '(^|/)skills/.*/SKILL\.md$|(^|/)SKILL\.md$|(^|/)\.claude/(commands|skills)/|(^|/)\.github/(skills|prompts)/' | sed 's/^/  /' | grep . || echo "(none found)"
 
 echo
 echo "Done. Map each encoded workflow to a candidate skill in SKILL.md (Synthesis)."

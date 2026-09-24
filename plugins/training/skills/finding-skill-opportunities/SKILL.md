@@ -1,6 +1,6 @@
 ---
 name: finding-skill-opportunities
-description: Use when asked to find skill opportunities in a codebase, audit a repo for automatable workflows, decide what skills to write, or mine git history, existing automation, and recent Claude Code session transcripts for recurring multi-step procedures worth turning into Claude Code skills.
+description: Use when asked to find skill opportunities in a codebase, audit a repo for automatable workflows, decide what skills to write, or mine git history, existing automation, and recent Claude Code session transcripts for recurring multi-step procedures worth turning into agent skills.
 ---
 
 # Finding Skill Opportunities
@@ -40,22 +40,22 @@ Take these from the user's request; don't interrogate them for defaults. Pick `s
 
 ## Workflow
 
-All scripts are read-only and deterministic. Run the ones the chosen source calls for, then synthesize.
+All scripts are read-only and deterministic. Run the ones the chosen source calls for, then synthesize. The script paths below are relative to this skill's own directory — run them from that base directory, not from the repo being scanned.
 
 1. **Mine git history** (source `git` or `both`):
    ```bash
-   bash "${CLAUDE_SKILL_DIR}/scripts/git-signals.sh" --repo <path> --days 30 --top 20
+   bash scripts/git-signals.sh --repo <path> --days 30 --top 20
    # or an absolute cutoff / free-form date: --since "1 year ago"
    ```
 
 2. **Inventory existing workflow encodings** (source `git` or `both`; lowest-hanging fruit — the steps already exist):
    ```bash
-   bash "${CLAUDE_SKILL_DIR}/scripts/scan-workflows.sh" --repo <path>
+   bash scripts/scan-workflows.sh --repo <path>
    ```
 
 3. **Mine session transcripts** (source `sessions` or `both`):
    ```bash
-   uv run python "${CLAUDE_SKILL_DIR}/scripts/session-signals.py" --repo <path> --days 30 --top 20
+   uv run python scripts/session-signals.py --repo <path> --days 30 --top 20
    # widen beyond this repo's sessions: --scope all
    ```
    Reads `~/.claude/projects/*/*.jsonl`. A session counts as being about the repo if its working directory is the repo **or** it edited files inside it — people routinely run Claude from a vault or workspace root while working on another repo, and the summary breaks the match down (`matched by cwd` vs `by files edited`) so you can see which happened. Use `--scope all` to ignore repo membership entirely.
