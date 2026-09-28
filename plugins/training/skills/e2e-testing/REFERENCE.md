@@ -211,14 +211,16 @@ expect(response.url()).toContain("/session");  // correct for APIResponse
 
 `playwright-cli` is a standalone CLI for interacting with running Playwright browsers — useful for debugging agentic test runs and attaching to paused tests.
 
-### Install
+### Install (guided setup)
+
+Do not install packages yourself. If `playwright-cli` is not found, or its version is not 0.1.21, give the user these commands to run once:
 
 ```bash
-npm install -g playwright-cli
+npm install -g @playwright/cli@0.1.21
 playwright-cli install --skills
 ```
 
-Run `playwright-cli install --skills` after installing to enable skill support for the CLI.
+`playwright-cli install --skills` adds Playwright's own skill files for the CLI. The user can type `! <command>` in Claude Code to run each command in this session. Wait for the user to confirm before continuing.
 
 ### Debug a paused test
 

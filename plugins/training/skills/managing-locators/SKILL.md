@@ -11,22 +11,43 @@ playwright-cli. Determine the mode from the user's request:
 - **Explore mode**: User wants to investigate a feature/page for locators
 - **Fix mode**: User has a failing test or broken locator to repair
 
+## Target environment
+
+Run playwright-cli against a local, dev, or test environment only. Never
+point it at production.
+
+Before the first `goto`, confirm the base URL with the user. If the URL
+looks like production, or you are not sure, stop and ask.
+
 ## Pre-flight checks
 
 Run these before starting any work:
 
 ```bash
-# 1. Verify playwright-cli is installed
+# 1. Verify playwright-cli 0.1.21 is installed
 playwright-cli --version
 
 # 2. Verify Playwright version is 1.59 or higher
 npx playwright --version
+```
 
-# 3. Ensure playwright-cli skills are installed
+## Guided setup
+
+Do not install packages yourself. If `playwright-cli` is not found, or
+its version is not 0.1.21, stop and give the user these commands to run
+once:
+
+```bash
+# Install the pinned playwright-cli version
+npm install -g @playwright/cli@0.1.21
+
+# Add Playwright's own skill files for the CLI
 playwright-cli install --skills
 ```
 
-If `playwright-cli` is not found, install it first: `npm install -g @playwright/cli@latest && playwright-cli install --skills`
+Tell the user they can type `! <command>` in Claude Code to run each
+command in this session. Wait for the user to confirm, then run the
+pre-flight checks again.
 
 ## Locator priority (both modes)
 
@@ -65,6 +86,7 @@ call View on `./references/fix.md`
 
 ## Critical rules
 
+- Never target production — confirm the base URL with the user first
 - Always use playwright-cli for live verification — never guess from source code
 - Snapshot before AND after interactions to capture state changes
 - For dialogs: wait for inner form fields, not the dialog wrapper

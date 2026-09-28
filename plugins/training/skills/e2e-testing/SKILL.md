@@ -16,6 +16,14 @@ Run these before starting any test work:
 npx playwright --version
 ```
 
+## Target environment
+
+Run all browser sessions, data seeding, and tests against a local, dev,
+or test environment only. Never run them against production.
+
+Before the first navigation or seed, confirm the base URL with the user.
+If the URL looks like production, or you are not sure, stop and ask.
+
 ---
 
 Create Playwright end-to-end tests for a feature or workflow, from plan
@@ -111,6 +119,7 @@ intended scenario.**
 
 ## Critical rules
 
+- Never target production — confirm the base URL with the user first
 - Plan stays in chat, never written to a file
 - If user provides test scenarios, use ONLY those — no extras
 - Timestamps in test identifiers for isolation

@@ -9,6 +9,14 @@ Create Playwright API tests for an endpoint or resource, from exploration
 through passing tests. Follow this workflow step by step. **Stop after
 each step and check in with the user before proceeding.**
 
+## Target environment
+
+Run all requests against a local, dev, or test environment only. Never
+explore, seed data, or run tests against production.
+
+Before the first request, confirm the base URL with the user. If the
+URL looks like production, or you are not sure, stop and ask.
+
 ## Workflow checklist
 
 ```
@@ -197,6 +205,7 @@ Rules:
 
 ## Critical rules
 
+- Never target production - confirm the base URL with the user first
 - Plan stays in chat, never written to a file
 - If user provides test scenarios, use ONLY those - no extras
 - Always ask about OpenAPI spec or Swagger before exploratory calls
