@@ -6,7 +6,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | Description |
 | :----- | :---------- |
-| [`training`](./plugins/training) | Skills for building skills — finding what to write, designing new workflows, improving and evaluating what you have — plus `context-coverage`, which audits how well your agent context (CLAUDE.md / AGENTS.md / rules / skills) actually covers your code. |
+| [`training`](./plugins/training) | Skills for building skills (finding what to write, designing new workflows, improving and evaluating what you have), plus `context-coverage`, which audits how well your agent context (CLAUDE.md, AGENTS.md, Copilot instructions, rules, skills) covers your code. |
 
 ### What's in `training`
 
