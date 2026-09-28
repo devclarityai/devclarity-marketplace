@@ -139,6 +139,8 @@ table.data td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--gri
 table.data th.group{text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);border-bottom:none;padding-bottom:2px;max-width:none;white-space:nowrap;vertical-align:bottom}
 table.data th.gsep,table.data td.gsep{border-left:1px solid var(--border)}
 table.data th.gsep,table.data td.gsep{padding-left:14px}
+table.data td.src{white-space:normal;min-width:150px;font-size:11.5px}
+.changes{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10.5px;font-weight:640;color:#fff}
 .chartbox{width:100%;overflow-x:auto}
 .tt{position:fixed;pointer-events:none;background:var(--ink);color:var(--plane);padding:8px 11px;border-radius:8px;font-size:12px;z-index:50;opacity:0;transition:opacity .1s;max-width:320px;box-shadow:0 6px 22px rgba(0,0,0,.3);line-height:1.45}
@@ -152,7 +154,7 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12p
 <div class="wrap">
 <header>
   <h1>Context Coverage Report</h1>
-  <p class="sub">Directly-measured signals on how agent context (CLAUDE.md · AGENTS.md · rules · skills) lines up with the code in each repo — no invented scores. It surfaces a short list of things worth a look, then shows the numbers behind them.</p>
+  <p class="sub">How the context files in each repo (CLAUDE.md, AGENTS.md, GEMINI.md, Copilot instructions, Cursor and Windsurf rules, rules directories) line up with its code, along with how many skills each repo has.</p>
   <p class="meta" id="metaline"></p>
 </header>
 <div id="app"></div>
@@ -171,6 +173,23 @@ const el=(t,a={},kids=[])=>{const e=document.createElement(t);
   (Array.isArray(kids)?kids:[kids]).forEach(c=>c!=null&&c!==false&&e.append(c.nodeType?c:document.createTextNode(c)));return e;};
 const est=r=>r.loc_is_estimate?'*':'';
 const anyEst=R.some(r=>r.loc_is_estimate);
+// Context kinds, in display order, with the file names a reader recognizes.
+const KINDS=[['claude','CLAUDE.md'],['agents','AGENTS.md'],['gemini','GEMINI.md'],['copilot','copilot-instructions.md'],
+  ['instructions','*.instructions.md'],['rules','rules'],['cursorrules','.cursorrules'],['windsurfrules','.windsurfrules']];
+const KLABEL=Object.fromEntries(KINDS);
+// Lines per context kind. Older JSON lacks the breakdown, so fall back to the
+// root-file flags it did record.
+function byKind(r){
+  if(r.context_lines_by_kind)return r.context_lines_by_kind;
+  const o={};if(r.has_claude_md)o.claude=r.claude_md_lines||0;if(r.has_agents_md)o.agents=null;if(r.has_rules)o.rules=null;
+  (r.extra_context||[]).forEach(k=>{if(!(k in o))o[k]=null;});return o;}
+const sources=r=>KINDS.filter(([k])=>k in byKind(r)).map(([,l])=>l);
+const sourcesTitle=r=>KINDS.filter(([k])=>k in byKind(r)).map(([k,l])=>`${l}: ${byKind(r)[k]==null?'lines unknown':fmt(byKind(r)[k])+' lines'}`).join('\n');
+const nestedCount=r=>r.nested_context_count!=null?r.nested_context_count:(r.nested_claude_count||0);
+// ---- comparison with an earlier run (render.py --compare) ----
+const PREV=DOC.previous||null;
+const prevOf=r=>PREV&&PREV.repos?PREV.repos[r.name]:undefined;
+const signed=n=>(n>0?'+':n<0?'-':'±')+Math.abs(n).toLocaleString();
 
 const tt=document.getElementById('tt');
 function hover(node,html){node.style.cursor='default';
@@ -197,11 +216,17 @@ document.getElementById('metaline').textContent=
 // ---- governance: for a repo's dir tree, find nearest governing context ----
 function annotate(repo){
   const anchors=(repo.context_anchors||[]);
-  const govFor=dir=>{let best=null,bd=-1;for(const a of anchors){const ad=a.dir||'';
-    if(ad===''||dir===ad||dir.startsWith(ad+'/')){const d=ad===''?0:ad.split('/').length;if(d>bd){bd=d;best=a;}}}return best;};
+  // The nearest governing folder wins. Every file governing that same folder
+  // counts (a root CLAUDE.md, AGENTS.md and copilot file all load together).
+  const govFor=dir=>{let bd=-1,hits=[];for(const a of anchors){const ad=a.dir||'';
+    if(ad===''||dir===ad||dir.startsWith(ad+'/')){const d=ad===''?0:ad.split('/').length;
+      if(d>bd){bd=d;hits=[a];}else if(d===bd)hits.push(a);}}
+    if(!hits.length)return null;
+    return {dir:hits[0].dir||'',lines:hits.reduce((s,a)=>s+(a.lines||0),0),
+      kind:[...new Set(hits.map(a=>KLABEL[a.kind]||a.kind))].join(' + ')};};
   (function walk(n,path){n._path=path;n._gov=govFor(path);
     n._density=n._gov?Math.round(n.loc/Math.max(n._gov.lines,1)):null;
-    n._own=anchors.some(a=>(a.dir||'')===path);
+    n._own=anchors.some(a=>!a.inherited&&(a.dir||'')===path);
     (n.children||[]).forEach(c=>walk(c,path?path+'/'+c.name:c.name));})(repo.dir_tree,'');
   return repo.dir_tree;
 }
@@ -217,58 +242,73 @@ function computeFindings(){
     const nm=r.name;
     // no context at all
     if(!r.has_context){
-      F.push({repo:nm,sev:'crit',kind:'No agent context',mag:r.loc||0,
-        title:`<span class="rn">${nm}</span> has no CLAUDE.md, AGENTS.md, or rules`,
-        detail:`${fmt(r.loc)}${est(r)} lines of code and nothing to orient an agent that opens it.`,
+      F.push({repo:nm,sev:'crit',kind:'No context files',mag:r.loc||0,
+        title:`<span class="rn">${nm}</span> has no context files`,
+        detail:`${fmt(r.loc)}${est(r)} lines of code and none of these: CLAUDE.md, AGENTS.md, GEMINI.md, Copilot instructions, Cursor or Windsurf rules, or a rules directory.`,
         chips:[['LOC',kloc(r.loc)+est(r)],['context lines','0'],['skills',r.skills_count||0]]});
       return;
     }
-    // stale: commits since context edited
-    if((r.commits_since_context||0)>=STALE){
-      F.push({repo:nm,sev:'warn',kind:'Context may be behind the code',mag:r.commits_since_context,
-        title:`<span class="rn">${nm}</span>: ${r.commits_since_context} commits since its context was last edited`,
-        detail:`Newest context file last changed ${Math.round(r.context_last_updated_days)}d ago; ${r.commits_since_context} commits have landed on the default branch since. Worth a glance to see if it drifted.`,
-        chips:[['context edited',Math.round(r.context_last_updated_days)+'d ago'],['commits since',r.commits_since_context],['LOC',kloc(r.loc)+est(r)]]});
+    // stale: many commits since context was edited, or old context in an active repo
+    const byCommits=(r.commits_since_context||0)>=STALE;
+    const age=r.context_last_updated_days!=null?Math.round(r.context_last_updated_days):null;
+    const byAge=r.context_last_updated_days!=null&&r.context_last_updated_days>M.stale_max_age_days&&(r.commits_recent||0)>0;
+    if(byCommits||byAge){
+      F.push({repo:nm,sev:'warn',kind:'Context may be behind the code',mag:byCommits?r.commits_since_context:age,
+        title:byCommits
+          ? `<span class="rn">${nm}</span>: ${r.commits_since_context} commits since its newest context file was edited`
+          : `<span class="rn">${nm}</span>: newest context file edited ${age}d ago, ${r.commits_recent} commits in the last ${M.active_window_days} days`,
+        detail:byCommits
+          ? `The newest context file was edited ${age}d ago, and the default branch has had ${r.commits_since_context} commits since. Check whether the context still matches the code.`
+          : `No context file has been edited in ${age} days, past the ${M.stale_max_age_days}-day threshold, and the default branch had ${r.commits_recent} commits in the last ${M.active_window_days} days. Check whether the context still matches the code.`,
+        chips:[['context edited',age+'d ago'],['commits since',r.commits_since_context==null?'—':r.commits_since_context],['LOC',kloc(r.loc)+est(r)]]});
     }
     // thin whole-repo context relative to code size
     if(r.loc>=PB.dense_loc && r.loc_per_context_line!=null && r.loc_per_context_line>PB.loc_per_ctxline_bad){
       const layered=r.has_nested_or_rules;
       F.push({repo:nm,sev:'warn',kind:'Thin context for the codebase',mag:r.loc||0,
-        title:`<span class="rn">${nm}</span>: ${kloc(r.loc)}${est(r)} LOC covered by only ${r.total_context_lines} lines of context`,
+        title:`<span class="rn">${nm}</span>: ${kloc(r.loc)}${est(r)} lines of code, ${r.total_context_lines} lines of context`,
         detail:layered
-          ? `That's ${fmt(r.loc_per_context_line)} lines of code per line of context — an agent gets little guidance per unit of code. May be fine if the code is self-explanatory.`
-          : `That's the whole context — a single root ${r.has_claude_md?'CLAUDE.md':'context file'}, no nested CLAUDE.md or /rules/ for any area. May be fine if the code is self-explanatory.`,
-        chips:layered
-          ? [['LOC',kloc(r.loc)+est(r)],['context lines',r.total_context_lines],['LOC / ctx-line',fmt(r.loc_per_context_line)]]
-          : [['LOC',kloc(r.loc)+est(r)],['context lines',r.total_context_lines],['nested / rules','none']]});
+          ? `That is ${fmt(r.loc_per_context_line)} lines of code per line of context, above the ${PB.loc_per_ctxline_bad} threshold. A high ratio can be fine where the code or other docs already explain it.`
+          : `That is ${fmt(r.loc_per_context_line)} lines of code per line of context, above the ${PB.loc_per_ctxline_bad} threshold, and all of it is in root-level files. No context file governs a single folder.`,
+        chips:[['LOC',kloc(r.loc)+est(r)],['context lines',r.total_context_lines],['LOC / ctx-line',fmt(r.loc_per_context_line)]]});
     }
     // oversized single file
     (r.context_anchors||[]).forEach(a=>{if(a.kind!=='rules'&&!a.inherited&&a.lines>PB.oversized_claude_lines)
       F.push({repo:nm,sev:'warn',kind:'Long context file',mag:a.lines,
         title:`<span class="rn">${nm}</span>: <code>/${a.path}</code> is ${a.lines} lines`,
-        detail:`Over ${PB.oversized_claude_lines} lines — long enough that an agent may not attend to all of it. Consider splitting into nested per-area files.`,
+        detail:`Over the ${PB.oversized_claude_lines}-line threshold for a single context file. Splitting it into folder-level files is one option.`,
         chips:[['file length',a.lines+' lines'],['repo LOC',kloc(r.loc)+est(r)]]});});
-    // single root file governing a large multi-folder repo
-    if(r.loc>=10000 && !r.nested_claude_count && !(r.own_rules!==undefined?r.own_rules:r.has_rules)){
+    // only root-level context governing a large multi-folder repo
+    const ownArea=r.own_area_context!==undefined?r.own_area_context:(r.nested_claude_count||r.has_rules);
+    if(r.loc>=10000 && !ownArea){
       annotate(r);const kids=(r.dir_tree.children||[]).filter(c=>c.loc>=PB.dense_loc);
-      if(kids.length>=2)F.push({repo:nm,sev:'warn',kind:'No per-area context',mag:r.loc||0,
-        title:`<span class="rn">${nm}</span>: ${kids.length} large folders, all under one root context file`,
-        detail:`Folders like ${kids.slice(0,3).map(k=>'/'+k.name).join(', ')} each carry thousands of LOC but there's no nested CLAUDE.md or /rules/ for any of them.`,
-        chips:[['large folders',kids.length],['nested context','0'],['root ctx lines',r.total_context_lines]]});
+      if(kids.length>=2)F.push({repo:nm,sev:'warn',kind:'No folder-level context',mag:r.loc||0,
+        title:`<span class="rn">${nm}</span>: ${kids.length} folders over ${fmt(PB.dense_loc)} lines of code with only root-level context files`,
+        detail:`${kids.slice(0,3).map(k=>'/'+k.name).join(', ')}${kids.length>3?' and others':''} each have over ${fmt(PB.dense_loc)} lines of code, and none has a nested CLAUDE.md or AGENTS.md or a *.instructions.md whose applyTo points at it.`,
+        chips:[['folders',kids.length],['folder-level files','0'],['root context lines',r.total_context_lines]]});
     }
-    // skills but no root CLAUDE.md
+    // Copilot files outside the locations every Copilot surface reads
+    const outside=r.copilot_outside_default||[];
+    if(outside.length){
+      const shown=outside.slice(0,5).map(p=>'<code>/'+p+'</code>').join(', ')+(outside.length>5?`, and ${outside.length-5} more`:'');
+      F.push({repo:nm,sev:'warn',kind:'Copilot may not load these',mag:outside.length,
+        title:`<span class="rn">${nm}</span>: ${outside.length} Copilot instruction file${outside.length>1?'s':''} outside the default locations`,
+        detail:`The context totals include these files. Copilot cloud agent and Copilot code review read only <code>.github/copilot-instructions.md</code> and <code>.github/instructions/</code> at the repo root, so they skip them. VS Code reads them only when the folder holding them is opened as a workspace. Copilot CLI also reads them from the current directory and from folders along the path of a file it is editing. The files are ${shown}.`,
+        chips:[['files',outside.length]]});
+    }
+    // skills but nothing at the root to point an agent at them
     const ownSkills=r.own_skills_count!==undefined?r.own_skills_count:(r.skills_count||0);
     const frontDoor=r.has_front_door!==undefined?r.has_front_door:r.has_claude_md;
     if(ownSkills>=3 && !frontDoor){
-      F.push({repo:nm,sev:'warn',kind:'Skills without a front door',mag:ownSkills,
-        title:`<span class="rn">${nm}</span>: ${ownSkills} skills but no root CLAUDE.md`,
-        detail:`Plenty of skills, but nothing at the repo root to orient an agent to them.`,
-        chips:[['skills',ownSkills],['root CLAUDE.md','none']]});
+      F.push({repo:nm,sev:'warn',kind:'Skills with no root context file',mag:ownSkills,
+        title:`<span class="rn">${nm}</span>: ${ownSkills} skills but no root context file`,
+        detail:`No CLAUDE.md, AGENTS.md, GEMINI.md or .github/copilot-instructions.md at the repo root, so no root context file points an agent to these skills.`,
+        chips:[['skills',ownSkills],['root context file','none']]});
     }
     if(IS_REPO && r.scope && r.owns_no_context && r.loc>=PB.dense_loc){
       F.push({repo:nm,sev:'warn',kind:'No context of its own',mag:r.loc||0,
-        title:`<span class="rn">${nm}</span>: ${kloc(r.loc)} LOC with no context of its own`,
-        detail:`Everything orienting an agent here lives above this area — ${fmt(r.inherited_context_lines||0)} inherited lines written for the whole repo. Worth a look at whether this area needs its own.`,
+        title:`<span class="rn">${nm}</span>: ${kloc(r.loc)} lines of code with no context file of its own`,
+        detail:`All context that governs this area comes from files outside it (${fmt(r.inherited_context_lines||0)} inherited lines). Check whether the area needs its own context file.`,
         chips:[['LOC',kloc(r.loc)],['own context lines','0'],['inherited lines',fmt(r.inherited_context_lines||0)]]});
     }
   });
@@ -279,8 +319,8 @@ function computeFindings(){
       seen.add(a.path);
       F.push({repo:SRC.repo,sev:'warn',kind:'Long context file',mag:a.lines,
         title:`<span class="rn">${SRC.repo}</span>: <code>/${a.path}</code> is ${a.lines} lines`,
-        detail:`Over ${PB.oversized_claude_lines} lines — long enough that an agent may not attend to all of it. It governs every area scanned here, so splitting it into nested per-area files would help all of them.`,
-        chips:[['file length',a.lines+' lines'],['areas it governs',scoped.length]]});
+        detail:`Over the ${PB.oversized_claude_lines}-line threshold for a single context file. It governs every area scanned here. Splitting it into folder-level files is one option.`,
+        chips:[['file length',a.lines+' lines'],['areas scanned',scoped.length]]});
     }));
   }
   const rank={crit:0,warn:1}; F.sort((a,b)=>(rank[a.sev]-rank[b.sev])||b.mag-a.mag);
@@ -289,8 +329,8 @@ function computeFindings(){
 
 function buildFindings(F){
   const s=el('section');
-  s.append(el('h2',{},`Things to check — ${F.length}`));
-  s.append(el('p',{class:'h2sub'},'Specific places where the context and the code look out of step. Each is a prompt to look, not a verdict — some will be perfectly reasonable once you check. Ordered most-pressing first.'));
+  s.append(el('h2',{},`Things to check (${F.length})`));
+  s.append(el('p',{class:'h2sub'},'Places where the context files and the code may not match. Repos with no context files come first, then the rest by the size of the gap. Some will be fine once checked.'));
   if(!F.length){s.append(el('div',{class:'finding'},el('div',{class:'fbody'},`Nothing stood out across the analyzed ${UNIT=='area'?'areas':'repos'}.`)));mount.append(s);return;}
   F.slice(0,10).forEach((f,i)=>{
     const d=el('details',{class:'finding '+(f.sev==='crit'?'crit':'warn')});
@@ -307,7 +347,7 @@ function buildFindings(F){
     b.append(el('div',{class:'fk'},f.kind));
     d.append(b);s.append(d);
   });
-  if(F.length>10)s.append(el('p',{class:'meta'},`+${F.length-10} more — see the per-repo detail below.`));
+  if(F.length>10)s.append(el('p',{class:'meta'},`${F.length-10} more in the per-repo detail below.`));
   mount.append(s);
 }
 
@@ -315,7 +355,7 @@ function buildFindings(F){
 function buildRepos(){
   const s=el('section');
   s.append(el('h2',{},'Per-repo detail'));
-  s.append(el('p',{class:'h2sub'},'For each repo: the raw numbers, where its context files live, and a folder map — every directory sized by its lines of code and colored by whether a context file actually governs it, and how thinly.'));
+  s.append(el('p',{class:'h2sub'},'Each repo shows its raw numbers, where its context files live, and a folder map. Each folder is sized by lines of code and colored by lines of code per line of its governing context file.'));
   scoped.slice().sort((a,b)=>(b.loc||0)-(a.loc||0)).forEach(r=>s.append(repoPanel(r)));
   mount.append(s);
 }
@@ -329,7 +369,7 @@ function repoPanel(r){
   const ftag=el('span',{class:'tag'},fresh==='fresh'?'context fresh':fresh==='stale'?'context stale':fresh==='none'?'no context':'freshness unknown');
   ftag.style.background=freshColor(fresh);
   sm.append(ftag);
-  sm.append(el('span',{class:'repohl'},`${kloc(r.loc)}${est(r)} LOC · ${fmt(r.total_context_lines)} context lines`+((r.has_nested_or_rules&&r.loc_per_context_line!=null)?` · ${fmt(r.loc_per_context_line)} LOC/ctx-line`:'')));
+  sm.append(el('span',{class:'repohl'},`${kloc(r.loc)}${est(r)} LOC · ${fmt(r.total_context_lines)} context lines`+(r.loc_per_context_line!=null?` · ${fmt(r.loc_per_context_line)} LOC/ctx-line`:'')));
   p.append(sm);
   const body=el('div',{class:'repobody'});
   // stat strip
@@ -339,11 +379,10 @@ function repoPanel(r){
   stats.append(stat('code files',fmt(r.code_file_count)));
   stats.append(stat('commits/90d',r.commits_recent==null?'—':r.commits_recent));
   stats.append(stat('last commit',r.last_commit_days!=null?Math.round(r.last_commit_days)+'d':'—'));
-  stats.append(stat('CLAUDE.md',(r.has_claude_md?r.claude_md_lines+' ln':'none')+(r.nested_claude_count?` +${r.nested_claude_count} nested`:''),r.has_claude_md?'':'bad'));
+  const nfiles=r.context_file_count;
+  stats.append(stat('context files'+(nestedCount(r)?` (${nestedCount(r)} folder-level)`:''),fmt(nfiles),nfiles===0?'bad':''));
   stats.append(stat('context lines',fmt(r.total_context_lines)));
-  // LOC-per-context-line only means something when context is layered; with a
-  // single root file it's just total-LOC / root-file-length.
-  if(r.has_nested_or_rules && r.loc_per_context_line!=null){const dens=r.loc_per_context_line;
+  if(r.loc_per_context_line!=null){const dens=r.loc_per_context_line;
     stats.append(stat('LOC / ctx-line',fmt(dens),dens>PB.loc_per_ctxline_bad?'bad':dens>PB.loc_per_ctxline_warn?'warn':'ok'));}
   stats.append(stat('skills',r.skills_count||0));
   if(r.commits_since_context!=null)stats.append(stat('commits since ctx',r.commits_since_context,r.commits_since_context>=STALE?'warn':'ok'));
@@ -353,17 +392,20 @@ function repoPanel(r){
   // Inherited = a context file above this area that still governs it. Shown
   // apart so an area isn't credited with context its own folder doesn't hold.
   const own=anchors.filter(a=>!a.inherited), inh=anchors.filter(a=>a.inherited);
-  const fmtA=a=>`<code>/${a.path}</code>${a.kind==='rules'?' (rules)':' ('+a.lines+' ln)'}`;
+  // A path-scoped instructions file names the folder it applies to when that
+  // differs from where it lives.
+  const fmtA=a=>`<code>/${a.path}</code>${a.kind==='rules'?' (rules, '+a.lines+' ln)':' ('+a.lines+' ln'
+    +(a.kind==='instructions'?', applies to '+(a.dir?'/'+a.dir:IS_REPO?'the whole area':'the whole repo'):'')+')'}`;
   body.append(el('div',{class:'anchors',html:own.length
     ? 'Context files: '+own.map(fmtA).join(' · ')
     : (inh.length?'<b>No context files of its own.</b>':'<b>No context files.</b>')}));
   if(inh.length)body.append(el('div',{class:'anchors',
-    html:`Inherited from above <span class="muted">(${fmt(r.inherited_context_lines||0)} lines, governs this area)</span>: `
+    html:`Inherited from outside this area <span class="muted">(${fmt(r.inherited_context_lines||0)} lines that govern it)</span>: `
          +inh.map(fmtA).join(' · ')}));
   // tree
   if((r.dir_tree.children||[]).length){body.append(tree(r));
     const leg=el('div',{class:'legend'});
-    [['--good','well-governed / own context'],['--warning',`sparse (>${PB.loc_per_ctxline_warn} LOC/line)`],['--serious',`very sparse (>${PB.loc_per_ctxline_bad})`],['--critical','no governing context']].forEach(([c,l])=>{
+    [['--good',`own context file, or ${PB.loc_per_ctxline_warn} or fewer LOC per line`],['--warning',`sparse (>${PB.loc_per_ctxline_warn} LOC/line)`],['--serious',`very sparse (>${PB.loc_per_ctxline_bad})`],['--critical','no governing context file']].forEach(([c,l])=>{
       const sw=el('span',{class:'sw'});sw.style.background=css(c);leg.append(el('span',{class:'k'},[sw,l]));});
     body.append(leg);}
   p.append(body);
@@ -385,9 +427,8 @@ function tree(r){
     const bw=el('div',{class:'tbarwrap'});const bar=el('div',{class:'tbar'});
     bar.style.width=Math.max(1.5,100*n.loc/maxLoc)+'%';bar.style.background=statusCol(st);bar.style.opacity=depth>1?.7:1;
     bw.append(bar);bw.append(el('div',{class:'tbarloc'},kloc(n.loc)+est(r)));row.append(bw);
-    const showDens=r.has_nested_or_rules;  // ratio only meaningful with layered context
-    row.append(el('div',{class:'tgov',html:n._own?'has its own context':n._gov?`gov: <b>/${n._gov.dir||'root'}</b>${showDens?` · ${fmt(n._density)}/ln`:''}`:'<b>uncovered</b>'}));
-    hover(row,()=>`<b>/${n._path}</b><br>${kloc(n.loc)}${est(r)} LOC<br>${n._own?'has its own context file':n._gov?`nearest context: /${n._gov.dir||'root'} (${n._gov.lines}-line ${n._gov.kind}) — ${fmt(n._density)} LOC per context line`:'no governing context file'}`);
+    row.append(el('div',{class:'tgov',html:n._own?'has its own context':n._gov?`governed by <b>/${n._gov.dir||'root'}</b> · ${fmt(n._density)}/ln`:'<b>uncovered</b>'}));
+    hover(row,()=>`<b>/${n._path}</b><br>${kloc(n.loc)}${est(r)} LOC<br>${n._own?'has its own context file':n._gov?`nearest context: /${n._gov.dir||'root'} (${n._gov.lines} lines of ${n._gov.kind}), ${fmt(n._density)} LOC per context line`:'no governing context file'}`);
     return row;
   }
   function node(n,depth){
@@ -408,8 +449,17 @@ function tree(r){
 function buildTable(){
   const s=el('section');
   s.append(el('h2',{},'The numbers'));
-  s.append(el('p',{class:'h2sub'},'Everything measured, grouped: the code, the context that covers it, and how fresh that context is. All directly counted (org-mode LOC is a byte-based estimate).'));
-  function freshTag(r){const t=el('span',{class:'tag'},r.freshness);t.style.background=freshColor(r.freshness);return t;}
+  s.append(el('p',{class:'h2sub'},'Code size, context files and context freshness for each repo. Counts are exact except org-mode lines of code, which are estimated from file sizes. Hover a Sources cell for lines per file type.'
+    +(PREV?` Changes are against the run from ${PREV.generated_at}.`:'')));
+  function freshTag(r){const p=prevOf(r),t=el('span',{class:'tag'},r.freshness);t.style.background=freshColor(r.freshness);
+    if(p&&p.freshness&&p.freshness!==r.freshness){const w=el('span');w.append(t,el('span',{class:'muted'},' was '+p.freshness));return w;}
+    return t;}
+  // a number with its change since the previous run, when there is one
+  function withDelta(r,key,v){const p=prevOf(r);if(!PREV)return v;if(!p)return v+' (new)';
+    const d=(r[key]||0)-(p[key]||0);return d?`${v} (${signed(d)})`:v;}
+  function srcCell(r){const s=sources(r);if(!s.length)return 'none';
+    const sp=el('span');s.forEach((l,i)=>{const n=el('span',{style:'white-space:nowrap'},l+(i<s.length-1?',':''));
+      sp.append(n,i<s.length-1?' ':'');});sp.title=sourcesTitle(r);return sp;}
   // [key, label, align, accessor]
   const groups=[
     ['', [['name','Repo','l',r=>r.name]]],
@@ -419,12 +469,12 @@ function buildTable(){
       ['commits_recent','Commits (90d)','',r=>r.commits_recent==null?'—':r.commits_recent],
       ['last_commit_days','Last commit','',r=>r.last_commit_days!=null?Math.round(r.last_commit_days)+'d ago':'—']]],
     ['The context', [
-      ['claude_md_lines','CLAUDE.md lines','',r=>r.has_claude_md?r.claude_md_lines:'none'],
-      ['nested_claude_count','Nested files','',r=>r.nested_claude_count||0],
-      ['has_rules','Has /rules/','',r=>r.has_rules?'yes':'—'],
+      ['sources','Sources','l src',r=>srcCell(r)],
+      ['context_file_count','Context files','',r=>fmt(r.context_file_count)],
+      ['nested_context_count','Folder-level files','',r=>nestedCount(r)],
       ['skills_count','Skills','',r=>r.skills_count||0],
-      ['total_context_lines','Total context lines','',r=>r.total_context_lines||0],
-      ['loc_per_context_line','LOC per context line','',r=>(r.has_nested_or_rules&&r.loc_per_context_line!=null)?fmt(r.loc_per_context_line):'—']]],
+      ['total_context_lines','Total context lines','',r=>withDelta(r,'total_context_lines',fmt(r.total_context_lines||0))],
+      ['loc_per_context_line','LOC per context line','',r=>fmt(r.loc_per_context_line)]]],
     ['Freshness', [
       ['context_last_updated_days','Context last edited','',r=>r.context_last_updated_days!=null?Math.round(r.context_last_updated_days)+'d ago':'—'],
       ['commits_since_context','Commits since edit','',r=>r.commits_since_context==null?'—':r.commits_since_context],
@@ -444,6 +494,26 @@ function buildTable(){
   scoped.slice().sort((a,b)=>(b.loc||0)-(a.loc||0)).forEach(r=>{const tr=document.createElement('tr');
     flat.forEach(([c,sep])=>{const v=c[3](r);const td=el('td',{class:c[2]+(sep?' gsep':'')});if(v&&v.nodeType)td.append(v);else td.textContent=v;tr.append(td);});tbl.append(tr);});
   const box=el('div',{class:'chartbox'});box.append(tbl);s.append(box);mount.append(s);
+}
+
+// ============================ SINCE LAST RUN ============================
+function buildChanges(){
+  if(!PREV)return;
+  const s=el('section');
+  s.append(el('h2',{},`Since ${PREV.generated_at}`));
+  const c={gained:[],lost:[],stale:[],current:[],covered:[],fresh:[]};
+  scoped.forEach(r=>{const p=prevOf(r);if(!p){c.fresh.push(r.name);return;}
+    const d=(r.total_context_lines||0)-(p.total_context_lines||0);
+    if(d>0)c.gained.push(r.name);if(d<0)c.lost.push(r.name);
+    if(r.freshness==='stale'&&p.freshness!=='stale')c.stale.push(r.name);
+    if(r.freshness==='fresh'&&p.freshness!=='fresh')c.current.push(r.name);
+    if(r.has_context&&!p.has_context)c.covered.push(r.name);});
+  const rows=[['gained context lines',c.gained],['lost context lines',c.lost],['now have context',c.covered],
+    ['became stale',c.stale],['became fresh',c.current],['not in the earlier run',c.fresh]].filter(([,v])=>v.length);
+  if(!rows.length){s.append(el('p',{class:'h2sub'},'No changes in context lines or freshness.'));mount.append(s);return;}
+  const box=el('div',{class:'changes'});
+  rows.forEach(([l,v])=>{const ch=el('span',{class:'chip',html:`${l} <b>${v.length}</b>`});ch.title=v.join('\n');box.append(ch);});
+  s.append(box);mount.append(s);
 }
 
 // ============================ SCOPE PANEL ============================
@@ -505,8 +575,8 @@ function renderReport(){
   recomputeScope();
   reportEl.textContent='';
   mount=reportEl;
-  if(!scoped.length){reportEl.append(el('section',{},el('p',{class:'h2sub'},`No ${UNIT=='area'?'areas':'repos'} selected — pick some in the panel above.`)));return;}
-  buildTable();buildFindings(computeFindings());buildRepos();
+  if(!scoped.length){reportEl.append(el('section',{},el('p',{class:'h2sub'},`No ${UNIT=='area'?'areas':'repos'} selected. Pick some in the panel above.`)));return;}
+  buildChanges();buildTable();buildFindings(computeFindings());buildRepos();
 }
 (function init(){
   app.textContent='';
@@ -515,10 +585,11 @@ function renderReport(){
   renderReport();
 })();
 document.getElementById('foot').innerHTML=
-  `<b>How each signal is measured.</b> <b>LOC</b> — lines in code files (vendored dirs pruned; org mode estimates from blob bytes${anyEst?', shown with * — use <code>--clone</code> for exact':''}). `+
-  `<b>Context lines</b> — actual line counts of every CLAUDE.md / AGENTS.md / rules file. <b>LOC / ctx-line</b> — LOC ÷ context lines. `+
-  `<b>Commits since context</b> — commits to the default branch since the newest context file was last edited (git history). <b>Stale</b> flags ≥ ${STALE} such commits. `+
-  `A folder is flagged when it exceeds ${PB.loc_per_ctxline_bad} LOC per line of its nearest governing context. Thresholds live in <code>collect.py</code>; nothing here is a blended score.`;
+  `<b>How each signal is measured.</b> <b>LOC:</b> lines in code files, excluding vendored folders (the list is <code>PRUNE_DIRS</code> in <code>collect.py</code>)${anyEst?'. Org mode estimates it from file sizes and marks those figures with *. Use <code>--clone</code> for exact counts':''}. `+
+  `<b>Context lines:</b> line counts of every CLAUDE.md, AGENTS.md, GEMINI.md, .github/copilot-instructions.md, *.instructions.md, .cursorrules and .windsurfrules, and every file in a rules/ directory such as .cursor/rules/ or .claude/rules/. Skills are counted separately. `+
+  `A *.instructions.md file governs the folder its <code>applyTo</code> globs point at. <b>LOC per context line:</b> lines of code divided by context lines. `+
+  `<b>Commits since context:</b> commits to the default branch since the newest context file was last edited. <b>Stale:</b> ${STALE} or more such commits, or no context file edited in ${M.stale_max_age_days} days while the default branch had commits in the last ${M.active_window_days} days. `+
+  `A folder is flagged when it has more than ${PB.loc_per_ctxline_bad} LOC per line of its nearest governing context. Each signal is reported on its own. The thresholds live in <code>collect.py</code>.`;
 
 document.getElementById('themebtn').addEventListener('click',()=>{const cur=document.documentElement.getAttribute('data-theme');
   const dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',dark?'light':'dark');
@@ -533,9 +604,20 @@ def main():
     ap.add_argument("data")
     ap.add_argument("--out", default="coverage-report.html")
     ap.add_argument("--title", default="Context Coverage Report")
+    ap.add_argument("--compare", metavar="PREVIOUS_JSON",
+                    help="an earlier coverage-data.json to compare against")
     args = ap.parse_args()
     with open(args.data, encoding="utf-8") as f:
         doc = json.load(f)
+    if args.compare:
+        with open(args.compare, encoding="utf-8") as f:
+            prev = json.load(f)
+        keep = ("total_context_lines", "loc_per_context_line", "commits_since_context",
+                "freshness", "has_context")
+        doc["previous"] = {
+            "generated_at": prev.get("generated_at"),
+            "repos": {r["name"]: {k: r.get(k) for k in keep} for r in prev.get("repos", [])},
+        }
     data_json = json.dumps(doc, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
     html = HTML.replace("__DATA__", data_json).replace("__TITLE__", args.title)
     with open(args.out, "w", encoding="utf-8") as f:

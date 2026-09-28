@@ -3,8 +3,9 @@
 context-coverage collector
 ===========================
 Scans a set of repositories and measures how well each is covered by
-agent context (CLAUDE.md / AGENTS.md), skills, and commands -- cross-
-referenced against how *real*, *big*, *active*, and *fresh* each repo is.
+agent context (CLAUDE.md / AGENTS.md / Copilot instructions / rules) and
+skills -- cross-referenced against how *real*, *big*, *active*, and *fresh*
+each repo is.
 
 Three modes:
   --dir  <folder>   Scan every git repo that is an immediate subdirectory
@@ -56,7 +57,7 @@ MODEL = {
     # context file was last touched, OR context age exceeds max_age_days while
     # the repo is still active.
     "stale_commits_since": 25,
-    "stale_max_age_days": 240,
+    "stale_max_age_days": 180,
     "active_window_days": 90,
     # In-scope cutoff: a repo must have a commit within this many days to be
     # analyzed at all (matches the AI-SDLC maturity model's "active repos").
@@ -64,18 +65,25 @@ MODEL = {
     # Problem-area detection (folder-level, computed in the renderer).
     "problem": {
         "dense_loc": 3000,             # a folder this big deserves its own context
-        "loc_per_ctxline_warn": 180,   # LOC governed per line of context — amber
+        "loc_per_ctxline_warn": 180,   # LOC governed per line of context: amber
         "loc_per_ctxline_bad": 450,    # ... red
         "oversized_claude_lines": 300, # a single CLAUDE.md longer than this = bloated
     },
 }
 
 # Context files that live at a fixed path (beyond CLAUDE.md / AGENTS.md).
+# Their lines count like any other context file.
 EXTRA_CONTEXT_FILES = {
     ".cursorrules": "cursorrules",
     ".github/copilot-instructions.md": "copilot",
     ".windsurfrules": "windsurfrules",
 }
+# Copilot's repo-wide file. Also recognized under a subfolder's own .github/,
+# where it governs that subfolder.
+COPILOT_FILE = ".github/copilot-instructions.md"
+# Copilot's path-scoped files. Any `*.instructions.md` counts, wherever it
+# lives; its `applyTo:` frontmatter decides which folders it governs.
+INSTRUCTIONS_SUFFIX = ".instructions.md"
 # Directories that hold rule files (Cursor/Cline/etc. "rules").
 RULES_DIR_NAMES = {"rules"}
 RULE_EXTS = {".md", ".mdc"}
@@ -98,7 +106,7 @@ PRUNE_DIRS = {
 # Agent-context "surfaces": tool-specific config roots. Presence of several
 # signals a deliberately context-rich repo.
 SURFACE_DIRS = [".claude", ".cursor", ".gemini", ".github", ".windsurf",
-                ".codeium", ".aider", ".continue"]
+                ".codeium", ".aider", ".continue", ".agents", ".devin"]
 
 CODE_EXTS = {
     ".py", ".js", ".jsx", ".ts", ".tsx", ".rb", ".go", ".rs", ".java",
@@ -185,6 +193,155 @@ def _dir_of(path):
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
 
+def context_kind(path):
+    """What kind of agent-context artifact a repo-relative path is, or None.
+    One classifier for every mode, so local, org and scoped runs agree."""
+    low = path.lower()
+    segs = low.split("/")
+    base = segs[-1]
+    if low in EXTRA_CONTEXT_FILES:
+        return EXTRA_CONTEXT_FILES[low]
+    if low.endswith("/" + COPILOT_FILE):
+        return "copilot"
+    if base == "claude.md":
+        return "claude"
+    if base == "agents.md":
+        return "agents"
+    if base == "gemini.md":
+        return "gemini"
+    if base == "skill.md":
+        return "skill"
+    if base.endswith(INSTRUCTIONS_SUFFIX):
+        return "instructions"
+    if base.endswith(".md") and "/commands/" in "/" + low and ".claude" in low:
+        return "command"
+    if os.path.splitext(base)[1] in RULE_EXTS and any(s in RULES_DIR_NAMES for s in segs[:-1]):
+        return "rules"
+    return None
+
+
+def parse_apply_to(text):
+    """The globs in a Copilot instructions file's `applyTo:` frontmatter, or []
+    when there is none. Accepts a quoted or bare comma-separated string, or a
+    YAML list."""
+    lines = (text or "").lstrip("\ufeff").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    globs, in_list = [], False
+    for line in lines[1:]:
+        s = line.strip()
+        if s == "---":
+            break
+        if in_list:
+            if s.startswith("- "):
+                globs.append(s[2:].strip().strip("'\""))
+                continue
+            in_list = False
+        if s.lower().startswith("applyto:"):
+            val = s.split(":", 1)[1].strip().strip("'\"")
+            if val.startswith("[") and val.endswith("]"):     # YAML flow list
+                val = val[1:-1]
+            if val:
+                globs += [g.strip().strip("'\"") for g in split_globs(val)]
+            else:
+                in_list = True
+    return [g for g in globs if g]
+
+
+def split_globs(val):
+    """Split a comma-separated glob list, keeping `{a,b}` and `[a,b]` whole."""
+    out, cur, depth = [], "", 0
+    for ch in val:
+        if ch == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+            continue
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]" and depth:
+            depth -= 1
+        cur += ch
+    return out + [cur]
+
+
+def copilot_default_location(path, kind):
+    """Would Copilot's github.com agent and code review load this file? They
+    read `.github/copilot-instructions.md` and `.github/instructions/**` at
+    the repository root only. (Copilot CLI and some editor setups read more.)"""
+    low = path.lower()
+    if kind == "copilot":
+        return low == COPILOT_FILE
+    if kind == "instructions":
+        return low.startswith(".github/instructions/")
+    return True
+
+
+def glob_dir(glob):
+    """The literal directory a glob is rooted in: `packages/web/**/*.tsx` ->
+    `packages/web`, `**/*.ts` -> '' (the whole repo), `src/index.ts` -> `src`."""
+    segs = [s for s in glob.replace("\\", "/").split("/") if s and s != "."]
+    lit = []
+    for s in segs:
+        if any(ch in s for ch in "*?[{"):
+            break
+        lit.append(s)
+    else:
+        lit = lit[:-1]          # no wildcard: the last segment names a file
+    return "/".join(lit)
+
+
+def apply_to_dir(text):
+    """The folder an instructions file governs, from its `applyTo:` globs: the
+    deepest directory they all share. None when the file has no `applyTo`."""
+    dirs = [glob_dir(g).split("/") for g in parse_apply_to(text)]
+    if not dirs:
+        return None
+    common = []
+    for parts in zip(*dirs):
+        if len(set(parts)) != 1 or not parts[0]:
+            break
+        common.append(parts[0])
+    return "/".join(common)
+
+
+def default_instructions_dir(path):
+    """Where an instructions file with no `applyTo` points: the folder holding
+    its `.github/`, or else its own folder."""
+    segs = path.split("/")
+    low = [s.lower() for s in segs[:-1]]
+    if ".github" in low:
+        return "/".join(segs[:low.index(".github")])
+    return "/".join(segs[:-1])
+
+
+def read_instruction_targets(paths, read_text):
+    """{path: governed dir} for every instructions file carrying an `applyTo`.
+    `read_text(path)` returns a file's text (from disk, or the API)."""
+    out = {}
+    for p in paths:
+        if context_kind(p) == "instructions":
+            d = apply_to_dir(read_text(p))
+            if d is not None:
+                # A nested `.github/` is its own workspace root, so its globs
+                # are relative to the folder holding it.
+                in_github = ".github" in [s.lower() for s in p.split("/")[:-1]]
+                base = default_instructions_dir(p) if in_github else ""
+                out[p] = "/".join(x for x in (base, d) if x)
+    return out
+
+
+def clamp_to_scope(d, scope):
+    """Re-root a repo-relative governed dir onto a scope. A dir at or above the
+    scope governs the scope's root. A dir outside the scope also maps to the
+    root: the file still sits in (or above) the area, and dropping it would
+    hide real context."""
+    if not scope:
+        return d
+    if d != scope and d.startswith(scope + "/"):
+        return d[len(scope) + 1:]
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Monorepo scoping helpers -- a "scope" is a subdirectory of one repo that is
 # analyzed as its own unit, so a team sees only the area they own.
@@ -216,46 +373,61 @@ def ancestor_dirs(scope):
     return out
 
 
-def context_governing_dir(path):
+def context_governing_dir(path, targets=None):
     """The directory a context artifact governs, or None if `path` is not one.
 
     A CLAUDE.md/AGENTS.md governs its own directory. A rule file governs the
     directory holding its `rules/` dir, stepping over a tool surface first, so
     `.cursor/rules/style.mdc` and `.claude/rules/r.md` govern the root exactly
     as a bare `rules/r.md` does. A skill governs the directory holding its
-    surface. Fixed-path files (`.cursorrules`, `.github/copilot-instructions.md`)
-    only ever exist at the root, so they govern the root."""
+    surface. `.cursorrules` and `.windsurfrules` govern the root, and a
+    `.github/copilot-instructions.md` governs the folder holding its `.github/`.
+    A Copilot `*.instructions.md` governs the folder its `applyTo` globs point
+    at (`targets`), falling back to its location when it has none."""
+    kind = context_kind(path)
+    if kind is None or kind == "command":
+        return None
     segs = path.split("/")
     low = [s.lower() for s in segs]
-    base = low[-1]
-    if path.lower() in EXTRA_CONTEXT_FILES:
-        return ""
-    if base in ("claude.md", "agents.md"):
-        return "/".join(segs[:-1])
     dirs = low[:-1]
-    if base == "skill.md":
+    if kind in ("cursorrules", "windsurfrules"):
+        return ""
+    if kind == "copilot":
+        return "/".join(segs[:-2])
+    if kind == "instructions":
+        return (targets or {}).get(path, default_instructions_dir(path))
+    if kind in ("claude", "agents", "gemini"):
+        # `.claude/CLAUDE.md` is read like a root CLAUDE.md: it governs the
+        # folder holding `.claude/`.
+        if len(dirs) >= 1 and dirs[-1] == ".claude":
+            return "/".join(segs[:-2])
+        return "/".join(segs[:-1])
+    if kind == "skill":
         for i, s in enumerate(dirs):
             if s in SURFACE_DIRS:
                 return "/".join(segs[:i])
         return "/".join(segs[:-1])
-    if os.path.splitext(base)[1] in RULE_EXTS:
-        idx = max((i for i, s in enumerate(dirs) if s in RULES_DIR_NAMES),
-                  default=-1)
-        if idx >= 0:
-            if idx > 0 and dirs[idx - 1] in SURFACE_DIRS:
-                idx -= 1
-            return "/".join(segs[:idx])
-    return None
+    idx = max(i for i, s in enumerate(dirs) if s in RULES_DIR_NAMES)
+    if idx > 0 and dirs[idx - 1] in SURFACE_DIRS:
+        idx -= 1
+    return "/".join(segs[:idx])
 
 
-def ancestor_context_paths(paths, scope):
-    """Every context artifact above the scope that still governs it -- any kind
-    the unscoped scan would count, not just CLAUDE.md. A file inside the scope
-    is the area's own and is never inherited, so a scope that is itself named
-    `rules` keeps its own rule files."""
+def ancestor_context_paths(paths, scope, targets=None):
+    """Every context artifact outside the scope that still governs it -- any
+    kind the unscoped scan would count, not just CLAUDE.md. That is anything
+    governing a directory above the scope, plus an instructions file elsewhere
+    whose `applyTo` points into it (the usual Copilot monorepo layout). A file
+    inside the scope is the area's own and is never inherited, so a scope that
+    is itself named `rules` keeps its own rule files."""
     anc = set(ancestor_dirs(scope))
-    found = [p for p in paths
-             if not under_scope(p, scope) and context_governing_dir(p) in anc]
+    found = []
+    for p in paths:
+        if under_scope(p, scope):
+            continue
+        d = context_governing_dir(p, targets)
+        if d is not None and (d in anc or under_scope(d, scope)):
+            found.append(p)
     return sorted(found, key=lambda x: (x.count("/"), x))
 
 
@@ -305,39 +477,41 @@ def resolve_scope(requested, dirs):
     return None, "is not a directory holding tracked files in this repo"
 
 
-def add_inherited_anchors(r, path, inherited):
-    """Fold ancestor context into the scope's record: each file becomes an
-    anchor governing the scope root (dir ''), flagged `inherited` so the report
-    can show it as borrowed, and its lines count toward coverage. Skills and
-    fixed-path files carry no line count, matching how the unscoped scan
-    counts them."""
+def add_inherited_anchors(r, path, inherited, scope="", targets=None):
+    """Fold context from outside the scope into the scope's record: each file
+    becomes an anchor flagged `inherited` so the report can show it as
+    borrowed, and its lines count toward coverage. Files governing a directory
+    above the scope govern the scope root (dir ''). An instructions file whose
+    `applyTo` points inside the scope governs that folder. Skills carry no line
+    count, matching how the unscoped scan counts them."""
     r["inherited_context_lines"] = 0
     r["inherited_skills_count"] = 0
     if not inherited:
         return
     rules_by_dir, total, skills, extra = {}, 0, 0, set()
+    by_kind = r.setdefault("context_lines_by_kind", {})
     for p in inherited:
-        low = p.lower()
-        base = low.rsplit("/", 1)[-1]
-        if low in EXTRA_CONTEXT_FILES:
-            extra.add(EXTRA_CONTEXT_FILES[low])
-            continue
-        if base == "skill.md":
+        kind = context_kind(p)
+        if kind == "skill":
             skills += 1
             continue
+        if kind in EXTRA_CONTEXT_FILES.values():
+            extra.add(kind)
         n = count_lines(os.path.join(path, p))
         total += n
-        if base in ("claude.md", "agents.md"):
-            r["context_anchors"].append({
-                "dir": "", "lines": n, "path": p, "inherited": True,
-                "kind": "claude" if base == "claude.md" else "agents"})
-        else:
+        by_kind[kind] = by_kind.get(kind, 0) + n
+        if kind == "rules":
             rules_by_dir[_dir_of(p)] = rules_by_dir.get(_dir_of(p), 0) + n
+        else:
+            d = clamp_to_scope(context_governing_dir(p, targets), scope)
+            r["context_anchors"].append({"dir": d, "lines": n, "path": p,
+                                         "kind": kind, "inherited": True})
     for d, n in sorted(rules_by_dir.items()):
         r["context_anchors"].append({"dir": "", "lines": n, "path": d,
                                      "kind": "rules", "inherited": True})
     r["inherited_context_lines"] = total
     r["total_context_lines"] = (r.get("total_context_lines") or 0) + total
+    r["context_file_count"] = (r.get("context_file_count") or 0) + len(inherited) - skills
     r["inherited_skills_count"] = skills
     r["skills_count"] = (r.get("skills_count") or 0) + skills
     r["extra_context"] = sorted(set(r.get("extra_context") or []) | extra)
@@ -345,58 +519,79 @@ def add_inherited_anchors(r, path, inherited):
         r["has_rules"] = True
 
 
+# Kinds whose lines count as context, in the order the report lists them.
+LINE_KINDS = ["claude", "agents", "gemini", "copilot", "instructions", "rules",
+              "cursorrules", "windsurfrules"]
+
+
 def classify_context_paths(paths):
-    """Sort repo-relative POSIX paths into context artifacts (CLAUDE.md /
-    AGENTS.md / rules / skills / commands / surfaces / other-tool files)."""
-    claude, agents, rules, skills, commands = [], [], [], [], []
+    """Sort repo-relative POSIX paths into context artifacts: one list per
+    context kind (see LINE_KINDS), plus skills, commands, tool surfaces, and
+    the fixed-path kinds present (`extra`)."""
+    c = {k: [] for k in LINE_KINDS + ["skill", "command"]}
     surfaces, extra = set(), set()
     for p in paths:
-        low = p.lower()
-        segs = low.split("/")
-        base = segs[-1]
+        segs = p.lower().split("/")
         if segs[0] in SURFACE_DIRS:
             surfaces.add(segs[0])
-        if low in EXTRA_CONTEXT_FILES:
-            extra.add(EXTRA_CONTEXT_FILES[low])
-        if base == "claude.md":
-            claude.append(p)
-        elif base == "agents.md":
-            agents.append(p)
-        elif base == "skill.md":
-            skills.append(p)
-        elif base.endswith(".md") and "/commands/" in "/" + low and ".claude" in low:
-            commands.append(p)
-        elif os.path.splitext(base)[1] in RULE_EXTS and any(s in RULES_DIR_NAMES for s in segs[:-1]):
-            rules.append(p)
-    return {"claude": claude, "agents": agents, "rules": rules,
-            "skills": skills, "surfaces": surfaces, "extra": sorted(extra)}
+        kind = context_kind(p)
+        if kind is None:
+            continue
+        c[kind].append(p)
+        if kind in EXTRA_CONTEXT_FILES.values():
+            extra.add(kind)
+    c["skills"] = c.pop("skill")
+    c["commands"] = c.pop("command")
+    c["surfaces"] = surfaces
+    c["extra"] = sorted(extra)
+    return c
 
 
-def finish_context(r, c, lines):
+def finish_context(r, c, lines, targets=None):
     """Assemble the context fields from a classification `c` and a resolved
-    {context_path: line_count} map. Rules files are first-class context: their
-    lines count toward total_context_lines and their /rules/ dir (which governs
-    the repo root) becomes an anchor."""
-    claude = sorted(c["claude"], key=lambda x: (x.count("/"), x))
-    agents = sorted(c["agents"], key=lambda x: (x.count("/"), x))
-    root_claude = next((p for p in claude if p.lower() == "claude.md"), None)
-    root_agents = next((p for p in agents if p.lower() == "agents.md"), None)
+    {context_path: line_count} map. Every file in LINE_KINDS is first-class
+    context: its lines count toward total_context_lines and it becomes an
+    anchor for the folder it governs. `targets` maps an instructions file to
+    the folder its `applyTo` names (already re-rooted onto any scope). Rule
+    files are grouped per rules dir, which governs the repo root."""
+    targets = targets or {}
+    ordered = lambda ps: sorted(ps, key=lambda x: (x.count("/"), x))
+    roots = [p for p in c["claude"] if p.lower() in ("claude.md", ".claude/claude.md")]
+    root_claude = min(roots, key=len) if roots else None
+    root_agents = next((p for p in c["agents"] if p.lower() == "agents.md"), None)
     anchors = []
-    for p in claude:
-        anchors.append({"dir": _dir_of(p), "lines": lines.get(p, 0), "kind": "claude", "path": p})
-    for p in agents:
-        anchors.append({"dir": _dir_of(p), "lines": lines.get(p, 0), "kind": "agents", "path": p})
+    for kind in LINE_KINDS:
+        if kind == "rules":
+            continue
+        for p in ordered(c[kind]):
+            d = targets.get(p, context_governing_dir(p)) if kind == "instructions" \
+                else context_governing_dir(p)
+            anchors.append({"dir": d, "lines": lines.get(p, 0), "kind": kind, "path": p})
     rules_by_dir = {}
     for p in c["rules"]:
         d = _dir_of(p)
         rules_by_dir[d] = rules_by_dir.get(d, 0) + lines.get(p, 0)
     for rd, ln in sorted(rules_by_dir.items()):
         anchors.append({"dir": "", "lines": ln, "kind": "rules", "path": rd})
+    by_kind = {}
+    for kind in LINE_KINDS:
+        n = sum(lines.get(p, 0) for p in c[kind])
+        if c[kind]:
+            by_kind[kind] = n
     r["has_claude_md"] = root_claude is not None
     r["claude_md_lines"] = lines.get(root_claude, 0) if root_claude else 0
-    r["nested_claude_count"] = max(0, len(claude) - (1 if root_claude else 0))
+    r["nested_claude_count"] = len(c["claude"]) - len(roots)
+    # Context files that govern a subfolder rather than the root: nested
+    # CLAUDE.md / AGENTS.md, a subfolder's copilot file, or a path-scoped
+    # instructions file.
+    r["nested_context_count"] = sum(1 for a in anchors if a["kind"] != "rules" and a["dir"])
     r["has_agents_md"] = root_agents is not None
     r["total_context_lines"] = sum(lines.values())
+    r["context_file_count"] = len(lines)
+    r["context_lines_by_kind"] = by_kind
+    # Copilot files the github.com agent and code review would not read.
+    r["copilot_outside_default"] = [a["path"] for a in anchors
+                                    if not copilot_default_location(a["path"], a["kind"])]
     r["skills_count"] = len(c["skills"])
     r["has_rules"] = bool(rules_by_dir)
     r["context_anchors"] = anchors
@@ -405,9 +600,10 @@ def finish_context(r, c, lines):
 
 def context_files(c):
     """The context files whose line counts we need, root-first."""
-    return (sorted(c["claude"], key=lambda x: (x.count("/"), x))
-            + sorted(c["agents"], key=lambda x: (x.count("/"), x))
-            + c["rules"])
+    out = []
+    for kind in LINE_KINDS:
+        out += sorted(c[kind], key=lambda x: (x.count("/"), x))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +715,24 @@ def scan_local_repo(path, name, scope=None):
     return r
 
 
+def newest_commit_ts(path, files, max_chars=6000):
+    """Commit time of the newest commit touching any of `files`, or None.
+    Batched so a repo with many context files stays under the OS
+    command-line limit."""
+    newest, batch, size = None, [], 0
+    for f in files + [None]:
+        if f is not None and size + len(f) < max_chars:
+            batch.append(f)
+            size += len(f) + 1
+            continue
+        if batch:
+            rc, out, _ = sh(["git", "log", "-1", "--format=%ct", "--"] + batch, cwd=path)
+            if rc == 0 and out.strip().isdigit():
+                newest = max(newest or 0, int(out.strip()))
+        batch, size = ([f], len(f) + 1) if f is not None else ([], 0)
+    return newest
+
+
 def inventory_context(path, r, tracked, scope=None):
     """Local context inventory: classify paths, read real line counts, assemble,
     then measure freshness from git.
@@ -537,8 +751,23 @@ def inventory_context(path, r, tracked, scope=None):
                 ap = os.path.abspath(os.path.join(dp, fn))
                 paths.append(ap[len(base):].lstrip("/\\").replace("\\", "/") if ap.startswith(base) else fn)
 
-    inherited = ancestor_context_paths(paths, scope) if scope else []
-    own_paths = [rel_to_scope(p, scope) for p in paths if under_scope(p, scope)] if scope else paths
+    def read_text(p):
+        try:
+            with open(os.path.join(path, p), encoding="utf-8", errors="replace") as f:
+                return f.read(20000)
+        except OSError:
+            return ""
+    targets = read_instruction_targets(paths, read_text)       # repo-relative
+    inherited = ancestor_context_paths(paths, scope, targets) if scope else []
+    # A file counts as the area's own only if it is context from the repo's
+    # point of view too: `apps/web/.cursorrules` re-rooted to `.cursorrules`
+    # must not start counting, or scoped and unscoped totals would disagree.
+    own_paths = paths
+    if scope:
+        own_paths = [rel_to_scope(p, scope) for p in paths if under_scope(p, scope)
+                     and not (context_kind(p) is None and context_kind(rel_to_scope(p, scope)))]
+    own_targets = {rel_to_scope(p, scope): clamp_to_scope(d, scope)
+                   for p, d in targets.items() if under_scope(p, scope)}
     c = classify_context_paths(own_paths)
     if scope:
         # Re-rooting strips the `rules/` marker from a scope that is itself a
@@ -551,29 +780,31 @@ def inventory_context(path, r, tracked, scope=None):
                     and os.path.splitext(low)[1] in RULE_EXTS
                     and any(s in RULES_DIR_NAMES for s in low.split("/")[:-1])):
                 rp = rel_to_scope(p, scope)
-                if rp not in known:
+                if rp not in known and context_kind(p) == "rules" and context_kind(rp) is None:
                     c["rules"].append(rp)
                     known.add(rp)
     ctx = context_files(c)                                   # scope-relative
     repo_ctx = [(scope + "/" + p if scope else p) for p in ctx]   # repo-relative
     lines = {p: count_lines(os.path.join(path, scope, p) if scope
                             else os.path.join(path, p)) for p in ctx}
-    finish_context(r, c, lines)
-    add_inherited_anchors(r, path, inherited)
+    finish_context(r, c, lines, own_targets)
+    if scope:
+        # An area's own Copilot files sit below the repo root, where the
+        # github.com agent and code review never look.
+        r["copilot_outside_default"] = [scope + "/" + a["path"] for a in r["context_anchors"]
+                                        if a["kind"] in ("copilot", "instructions")]
+    add_inherited_anchors(r, path, inherited, scope, targets)
 
     # --- context freshness (git) -------------------------------------------
     r["context_last_updated_days"] = None
     r["commits_since_context"] = None
-    # Freshness measures the same kinds in both modes -- prose and rules, not
-    # skills or fixed-path files -- or a skill edit would reset a scoped area's
-    # clock while leaving the unscoped run's untouched.
-    all_ctx = repo_ctx + [p for p in inherited
-                          if p.lower() not in EXTRA_CONTEXT_FILES
-                          and p.rsplit("/", 1)[-1].lower() != "skill.md"]
+    # Freshness measures the same kinds in both modes -- every file whose
+    # lines count as context, not skills -- or a skill edit would reset a
+    # scoped area's clock while leaving the unscoped run's untouched.
+    all_ctx = repo_ctx + [p for p in inherited if context_kind(p) != "skill"]
     if r.get("is_git") and all_ctx:
-        rc, out, _ = sh(["git", "log", "-1", "--format=%ct", "--"] + all_ctx, cwd=path)
-        if rc == 0 and out.strip().isdigit():
-            ts = int(out.strip())
+        ts = newest_commit_ts(path, all_ctx)
+        if ts is not None:
             r["context_last_updated_days"] = round((NOW - ts) / DAY, 1)
             since = datetime.fromtimestamp(ts + 1, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             # scoped: only commits touching this area count against its context
@@ -631,7 +862,7 @@ def scan_org_repo(owner, meta):
     file_locs = []                    # (path, loc estimate) for the dir tree
     if isinstance(tree, dict) and tree.get("tree"):
         if tree.get("truncated"):
-            r["errors"].append("tree truncated by GitHub API (very large repo) — counts are partial")
+            r["errors"].append("tree truncated by GitHub API (very large repo), so counts are partial")
         for node in tree["tree"]:
             if node.get("type") != "blob":
                 continue
@@ -679,22 +910,29 @@ CTX_FETCH_WORKERS = 4     # per-repo fetch concurrency (nested under --jobs)
 
 
 def _fetch_ctx_meta(owner, name, branch, files):
-    """For each context file, fetch (line_count, last_commit_date) -- in
-    parallel, falling back to sequential if the thread pool errors."""
+    """For each context file, fetch (text, last_commit_date) -- in parallel,
+    falling back to sequential if the thread pool errors."""
     def one(p):
-        return p, _gh_file_lines(owner, name, branch, p), _gh_file_last_commit(owner, name, branch, p)
+        return p, _gh_file_text(owner, name, branch, p), _gh_file_last_commit(owner, name, branch, p)
     out = {}
     if not files:
         return out
     try:
         with cf.ThreadPoolExecutor(max_workers=min(CTX_FETCH_WORKERS, len(files))) as ex:
-            for p, ln, d in ex.map(one, files):
-                out[p] = (ln, d)
+            for p, text, d in ex.map(one, files):
+                out[p] = (text, d)
     except Exception:
         for p in files:
-            _, ln, d = one(p)
-            out[p] = (ln, d)
+            _, text, d = one(p)
+            out[p] = (text, d)
     return out
+
+
+def _text_lines(text):
+    """Line count of fetched text, matching count_lines() on a local file."""
+    if not text:
+        return 0
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
 
 
 def _inventory_from_paths(r, tracked, owner=None, name=None, branch=None):
@@ -706,14 +944,19 @@ def _inventory_from_paths(r, tracked, owner=None, name=None, branch=None):
     r["context_last_updated_days"] = None
     r["commits_since_context"] = None
 
+    # Fetch Copilot files first (their applyTo needs the text), then the
+    # shallowest, so a repo with many nested files still reads its root ones.
+    ctx_files = sorted(ctx_files, key=lambda p: (context_kind(p) not in ("copilot", "instructions"),
+                                                 p.count("/")))
     head = ctx_files[:CTX_FETCH_CAP]
     meta = _fetch_ctx_meta(owner, name, branch, head)
-    lines = {p: meta[p][0] for p in head}
+    lines = {p: _text_lines(meta[p][0]) for p in head}
     measured = [v for v in lines.values() if v] or [40]
     mean_ln = round(sum(measured) / len(measured))
     for p in ctx_files[CTX_FETCH_CAP:]:
         lines[p] = mean_ln
-    finish_context(r, c, lines)
+    targets = read_instruction_targets(head, lambda p: meta[p][0])
+    finish_context(r, c, lines, targets)
 
     # --- freshness: newest context-file edit date, then commits since --------
     dates = [meta[p][1] for p in head if meta[p][1]]
@@ -741,19 +984,19 @@ def _gh_file_last_commit(owner, name, branch, path):
     return out.strip() if rc == 0 and out.strip() and out.strip() != "null" else None
 
 
-def _gh_file_lines(owner, name, branch, path):
+def _gh_file_text(owner, name, branch, path):
+    """A file's text on the branch, or '' if it can't be fetched."""
     if not path:
-        return 0
+        return ""
     rc, out, _ = sh(["gh", "api", f"repos/{owner}/{name}/contents/{quote(path, safe='/')}?ref={quote(branch, safe='')}",
                      "--jq", ".content"], timeout=30)
     if rc != 0 or not out.strip():
-        return 0
+        return ""
     import base64
     try:
-        raw = base64.b64decode(out.strip())
-        return raw.count(b"\n") + 1
+        return base64.b64decode(out.strip()).decode("utf-8", errors="replace")
     except Exception:
-        return 0
+        return ""
 
 
 def _iso_days(iso):
@@ -778,6 +1021,8 @@ def _org_stub(meta, err):
         "extra_context": [], "dir_tree": {"name": "", "loc": 0, "children": []},
         "context_anchors": [], "has_claude_md": False, "has_agents_md": False,
         "claude_md_lines": 0, "total_context_lines": 0, "nested_claude_count": 0,
+        "nested_context_count": 0, "context_file_count": 0, "context_lines_by_kind": {},
+        "copilot_outside_default": [],
         "has_rules": False, "skills_count": 0,
         "context_last_updated_days": None, "commits_since_context": None,
     }
@@ -807,26 +1052,33 @@ def classify(r):
     r["looks_throwaway"] = bool(r["throwaway_reason"])
     r["in_scope"] = r["is_active"] and not r["looks_throwaway"]
 
-    # --- context presence (CLAUDE.md / AGENTS.md / cursor / copilot / rules) -
+    # --- context presence (any file in LINE_KINDS) ----------------------------
     extra = r.get("extra_context") or []
+    anchors = r.get("context_anchors") or []
     r["has_rules"] = bool(r.get("has_rules"))
     ctx_lines = r.get("total_context_lines") or 0
     r["has_context"] = bool(r.get("has_claude_md") or r.get("has_agents_md")
-                            or ctx_lines or extra or r["has_rules"])
-    r["has_nested_or_rules"] = bool(r.get("nested_claude_count") or r["has_rules"])
+                            or ctx_lines or extra or r["has_rules"] or anchors)
+    # Layered: some context governs a subfolder, or there are rule files.
+    r["has_nested_or_rules"] = bool(r["has_rules"] or any(
+        a.get("dir") and a.get("kind") != "rules" for a in anchors))
 
     # What the unit owns, vs what governs it from above. Equal to the totals
     # unless a scope inherited something.
-    anchors = r.get("context_anchors") or []
     inh_lines = r.get("inherited_context_lines") or 0
     r["own_context_lines"] = max(0, ctx_lines - inh_lines)
     r["own_skills_count"] = max(0, (r.get("skills_count") or 0)
                                 - (r.get("inherited_skills_count") or 0))
     r["own_rules"] = any(a.get("kind") == "rules" and not a.get("inherited")
                          for a in anchors)
-    r["has_front_door"] = bool(r.get("has_claude_md") or r.get("has_agents_md")
-                               or any(a.get("kind") in ("claude", "agents")
-                                      and a.get("inherited") for a in anchors))
+    # Per-area context the unit holds itself: a file governing one of its
+    # subfolders, or its own rules.
+    r["own_area_context"] = r["own_rules"] or any(
+        a.get("dir") and a.get("kind") != "rules" and not a.get("inherited")
+        for a in anchors)
+    # A front door: a file every agent session in the unit loads, at its root.
+    r["has_front_door"] = any(a.get("kind") in ("claude", "agents", "gemini", "copilot")
+                              and not a.get("dir") for a in anchors)
     r["owns_no_context"] = bool(anchors) and not r["own_context_lines"]
 
     # --- density: LOC per line of context (a real ratio, repo-wide) ---------
@@ -870,8 +1122,8 @@ def main():
     g.add_argument("--repo", help="a single repo (monorepo mode); pair with --scope to analyze only your area")
     ap.add_argument("--scope", default="",
                      help="--repo only: comma-separated subpaths to analyze as separate units "
-                          "(e.g. 'apps/web,libs/ui'). Everything outside them is ignored; "
-                          "CLAUDE.md above a scope is counted as inherited context.")
+                          "(e.g. 'apps/web,libs/ui'). Everything outside them is ignored, except "
+                          "context files that govern a scope, which count as inherited.")
     ap.add_argument("--out", help="write JSON here instead of stdout")
     ap.add_argument("--limit", type=int, default=300, help="max repos (org mode)")
     ap.add_argument("--include", default="", help="comma-separated name globs to force IN scope (opt-in, ignores cutoff)")
@@ -1008,7 +1260,7 @@ def main():
                     progress(m)
                     repos.append(scan_one(m))
         if _GH_FAILURES["rate_limit"]:
-            print(f"WARNING: {_GH_FAILURES['rate_limit']} gh calls hit the API rate limit — "
+            print(f"WARNING: {_GH_FAILURES['rate_limit']} gh calls hit the API rate limit. "
                   f"some line counts / freshness are missing. Wait for the limit to reset "
                   f"(gh api rate_limit) or scan fewer repos with --repos.", file=sys.stderr)
         elif _GH_FAILURES["other"]:
