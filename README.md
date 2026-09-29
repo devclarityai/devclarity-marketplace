@@ -46,8 +46,8 @@ Refresh later with `/plugin marketplace update`.
   the **`claude`** CLI. These scripts may not run on every setup — and that's fine: each
   skill is written to **fall back** to performing the same steps with whatever tools your
   environment provides, so a missing interpreter degrades gracefully rather than blocking.
-- **Playwright skills:** need **Node.js** and **Playwright 1.59+** in the project under test.
-  `managing-locators` also needs **`playwright-cli`** (`@playwright/cli`).
+- **Playwright skills:** need **Node.js** and **Playwright** in the project under test.
+  `e2e-testing` and `managing-locators` also need the **Playwright MCP** server.
 
 ## Develop
 

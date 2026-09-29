@@ -1,81 +1,92 @@
 ---
 name: managing-locators
-description: Explores features to discover stable locators and fixes broken locators in Playwright tests. Two modes — explore (proactive discovery) and fix (reactive repair) — both using playwright-cli for live browser interaction.
+description: Explores features to discover stable locators and fixes broken locators in Playwright tests. Two modes — explore (proactive discovery) and fix (reactive repair) — both using Playwright MCP for live browser interaction.
 ---
 
 # Managing Locators
 
-Discover or repair Playwright locators using live browser interaction via
-playwright-cli. Determine the mode from the user's request:
+Discover or repair Playwright locators using a live browser through
+Playwright MCP. Determine the mode from the user's request:
 
-- **Explore mode**: User wants to investigate a feature/page for locators
-- **Fix mode**: User has a failing test or broken locator to repair
+- **Explore mode**: The user wants locators for a feature or page
+- **Fix mode**: The user has a failing test or broken locator
 
-## Pre-flight checks
+Before starting, read `REFERENCE.md` in this skill's folder for the
+team's locator conventions.
 
-Run these before starting any work:
+## Pre-flight check
 
-```bash
-# 1. Verify playwright-cli is installed
-playwright-cli --version
+Confirm that the Playwright MCP tools (for example, `browser_navigate`
+and `browser_snapshot`) are available. If they are not, ask the user to
+enable the Playwright MCP server and stop.
 
-# 2. Verify Playwright version is 1.59 or higher
-npx playwright --version
+## Credentials
 
-# 3. Ensure playwright-cli skills are installed
-playwright-cli install --skills
-```
+Never put passwords, tokens, or session cookies into the conversation.
 
-If `playwright-cli` is not found, install it first: `npm install -g @playwright/cli@latest && playwright-cli install --skills`
+- Do not ask the user for credentials, and never type them into a form.
+  If the user pastes one, do not use or repeat it, and tell them to
+  rotate it.
+- If a page needs a login, ask the user to sign in in the Playwright MCP
+  browser window and tell you when they are done.
+- Never read or print cookies, local storage, session storage, or saved
+  auth state.
 
 ## Locator priority (both modes)
 
 1. `getByRole` with accessible name
 2. `getByLabel`
-3. `getByTestId` data attributes
+3. `getByTestId`
 4. CSS selectors — last resort only
 
-Never use auto-generated classes (e.g., `css-1x2y3z`), positional
-selectors (`nth-child`), or exact text matches on dynamic content.
+Never use auto-generated classes, positional selectors (`nth-child`), or
+exact text on dynamic content.
+
+To get a locator, use `browser_generate_locator` if it is available.
+If not, build it from the role and accessible name in the snapshot.
 
 ## Explore mode
 
-call View on `./references/explore.md`
+1. Open the page with `browser_navigate` and take a `browser_snapshot`.
+2. Interact to reveal hidden elements (dialogs, dropdowns, forms) with
+   `browser_click` or `browser_type`. Use test data only. Take a snapshot
+   after each interaction.
+3. Catalog the locators by element purpose. Note any wait conditions.
+4. Repeat key interactions 2-3 times to confirm each locator is stable
+   and selects exactly one element.
 
-1. Navigate to the target page/feature via playwright-cli
-2. Snapshot before and after key interactions (dialogs, dropdowns, forms)
-3. Catalog discovered locators organized by element purpose
-4. Test reliability — verify each locator across multiple attempts
+Present the findings:
 
-**-> STOP. Present discovered locators and recommended strategies. Confirm with the user before documenting or using them.**
+    ## [Feature] Locators
+    - [Element]: `[locator]`
+      Wait condition: [if any]
+
+**-> STOP. Present the locators. Confirm with the user before using them.**
 
 ## Fix mode
 
-call View on `./references/fix.md`
+1. Read the failing test, its error, and the POM that holds the locator.
+2. Open the failing page with `browser_navigate` and take a snapshot.
+3. Classify the root cause before writing any code:
 
-1. Analyze the error — identify the broken locator and its intent
-2. Navigate to the affected page via playwright-cli and snapshot
-3. Classify the root cause before writing any code
-4. Find a replacement locator following the priority above
-5. Verify the replacement selects exactly one element and works across states
+   | Category | Symptom | Fix direction |
+   |---|---|---|
+   | Stale locator | Element not found, or timeout | Replace the locator from the live page |
+   | Text change | `toHaveText` fails with a new value | Update the expected value, or use a regex |
+   | Timing | Intermittent failure | Add a web-first assertion before the interaction |
+   | Session | Redirected to the login page | Ask the user to check the test's auth setup |
+   | Test data | Record not found, or wrong count | Fix the test setup |
+   | App change | Feature behavior changed | Update the test, or flag a regression |
 
-**-> STOP. Present the root cause classification and proposed fix. Confirm with the user before updating test files.**
+**-> STOP. State the root cause and the file and line to change. Confirm with the user before writing code.**
 
-6. Update the locator in the test/POM file and run the test to confirm
-
-## Critical rules
-
-- Always use playwright-cli for live verification — never guess from source code
-- Snapshot before AND after interactions to capture state changes
-- For dialogs: wait for inner form fields, not the dialog wrapper
-- For repeated elements (tables, lists): use parent context + child selector
-- Verify new locators work in different states (empty, populated, loading)
-- Check downstream effects — other tests may use the same locator
+4. Find a replacement locator that follows the priority above.
+5. Update the test or POM. Check nearby locators for the same problem.
+6. Run the failing test, then related tests that use the same locator.
 
 ## Anti-patterns
 
-- Reading application source code to guess locators instead of using playwright-cli
-- Using auto-generated CSS classes or positional selectors
-- Fixing one locator without checking if similar ones are also broken
-- Skipping verification across different page states
-- Classifying root cause after writing code instead of before
+- Typing credentials into login forms
+- Guessing locators from application source code instead of the live page
+- Fixing one locator without checking similar ones
+- Classifying the root cause after writing code

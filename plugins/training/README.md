@@ -11,9 +11,9 @@ DevClarity training skills and tooling for Claude Code.
 | [`skill-improver`](./skills/skill-improver) | Reviewing or improving an existing skill — checks name/scope, description, structure, and leanness, and surfaces concrete references/scripts/determinism opportunities. `/training:skill-improver` |
 | [`skill-eval-builder`](./skills/skill-eval-builder) | Setting up evals for a skill — scaffolds an `evals/` folder + scorecard measuring whether it fires, output is valid, is in time budget, or (optional) whether its classification gate labels inputs correctly. `/training:skill-eval-builder` |
 | [`designing-ai-workflows`](./skills/designing-ai-workflows) | Designing a new AI-enabled workflow or skill for a task type (integrations, modernization, maintenance, testing, and so on). Interviews you through context, structure, alignment, verification, and feedback, then scaffolds the skill(s) and a living design-summary HTML with a visual flow map. `/training:designing-ai-workflows` |
-| [`api-playwright-testing`](./skills/api-playwright-testing) | Writing Playwright API tests for an endpoint or resource — explores the API, drafts a test plan, builds auth helpers and Faker.js data factories, then writes and runs the tests, with a check-in at each step. `/training:api-playwright-testing` |
+| [`api-playwright-testing`](./skills/api-playwright-testing) | Writing Playwright API tests for an endpoint or resource — explores the API, drafts a test plan, builds helpers and data factories, then writes and runs the tests, with a check-in at each step. `/training:api-playwright-testing` |
 | [`e2e-testing`](./skills/e2e-testing) | Writing Playwright E2E tests for a feature or workflow — drafts a test plan, seeds test data, builds Page Object Models, then writes and runs the tests, with a check-in at each step. `/training:e2e-testing` |
-| [`managing-locators`](./skills/managing-locators) | Finding stable locators for a feature (explore mode) or repairing broken locators in failing tests (fix mode), verified in a live browser with `playwright-cli`. `/training:managing-locators` |
+| [`managing-locators`](./skills/managing-locators) | Finding stable locators for a feature (explore mode) or repairing broken locators in failing tests (fix mode), verified in a live browser with Playwright MCP. `/training:managing-locators` |
 
 ## Requirements & portability
 
@@ -26,8 +26,9 @@ run the bash scripts via Git Bash (they won't run under bare PowerShell/cmd). ma
 Linux, and WSL work as-is.
 
 The Playwright skills (`api-playwright-testing`, `e2e-testing`, `managing-locators`)
-need **Node.js** and **Playwright 1.59+** in the project under test. `managing-locators`
-also needs **`playwright-cli`** (`npm install -g @playwright/cli@latest`).
+need **Node.js** and **Playwright** in the project under test. `e2e-testing` and
+`managing-locators` also need the **Playwright MCP** server. Each skill has a `REFERENCE.md`
+template for the team to fill in with its project conventions.
 
 **These scripts may not run on every machine — and that's OK.** They only automate
 ordinary commands, and each skill is written to fall back to doing the same steps with
