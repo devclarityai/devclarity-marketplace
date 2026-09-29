@@ -6,7 +6,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | Description |
 | :----- | :---------- |
-| [`training`](./plugins/training) | Skills for building skills (finding what to write, designing new workflows, improving and evaluating what you have), plus `context-coverage`, which audits how well your agent context (CLAUDE.md, AGENTS.md, Copilot instructions, rules, skills) covers your code. |
+| [`training`](./plugins/training) | Skills for building skills (finding what to write, designing new workflows, improving and evaluating what you have), plus `context-coverage`, which audits how well your agent context (CLAUDE.md, AGENTS.md, Copilot instructions, rules, skills) covers your code, and Playwright testing skills for API tests, E2E tests, and locators. |
 
 ### What's in `training`
 
@@ -17,6 +17,9 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 | `skill-improver` | Reviews an existing skill for scope, description, structure and leanness. |
 | `skill-eval-builder` | Scaffolds an `evals/` folder and scorecard for a skill. |
 | `designing-ai-workflows` | Interviews you through the design of a new AI-enabled workflow, drafting a skeleton early and refining it phase by phase, then scaffolds the result as one or more skills plus a design-summary HTML with a visual flow map. |
+| `api-playwright-testing` | Guides Playwright API tests from API discovery through a test plan, helpers and data factories, to passing tests, with a check-in at each step. |
+| `e2e-testing` | Guides Playwright E2E tests from a test plan through data seeding and Page Object Models, to passing tests, with a check-in at each step. |
+| `managing-locators` | Discovers stable locators for a feature, or repairs broken ones in failing tests, using live browser interaction. |
 
 ## Install
 
@@ -43,6 +46,8 @@ Refresh later with `/plugin marketplace update`.
   the **`claude`** CLI. These scripts may not run on every setup — and that's fine: each
   skill is written to **fall back** to performing the same steps with whatever tools your
   environment provides, so a missing interpreter degrades gracefully rather than blocking.
+- **Playwright skills:** need **Node.js** and **Playwright 1.59+** in the project under test.
+  `managing-locators` also needs **`playwright-cli`** (`@playwright/cli`).
 
 ## Develop
 
