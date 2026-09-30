@@ -47,7 +47,8 @@ Refresh later with `/plugin marketplace update`.
   skill is written to **fall back** to performing the same steps with whatever tools your
   environment provides, so a missing interpreter degrades gracefully rather than blocking.
 - **Playwright skills:** need **Node.js** and **Playwright** in the project under test.
-  `e2e-testing` and `managing-locators` also need the **Playwright MCP** server.
+  `e2e-testing` and `managing-locators` also need the **Playwright MCP** server. The API and
+  E2E skills save project conventions to `.claude/testing/` in the project on first use.
 
 ## Develop
 

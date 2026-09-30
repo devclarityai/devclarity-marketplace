@@ -27,8 +27,11 @@ Linux, and WSL work as-is.
 
 The Playwright skills (`api-playwright-testing`, `e2e-testing`, `managing-locators`)
 need **Node.js** and **Playwright** in the project under test. `e2e-testing` and
-`managing-locators` also need the **Playwright MCP** server. Each skill has a `REFERENCE.md`
-template for the team to fill in with its project conventions.
+`managing-locators` also need the **Playwright MCP** server. On first use, `api-playwright-testing`
+and `e2e-testing` run a short setup Q&A and save the project's conventions to
+`.claude/testing/` in the project, so the team can commit them with the tests. The skills never
+ask for or handle credentials: the user signs in in the Playwright MCP browser, and test code
+reads credentials from environment variables.
 
 **These scripts may not run on every machine — and that's OK.** They only automate
 ordinary commands, and each skill is written to fall back to doing the same steps with
