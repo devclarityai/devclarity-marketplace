@@ -5,14 +5,11 @@ description: Explores features to discover stable locators and fixes broken loca
 
 # Managing Locators
 
-Discover or repair Playwright locators using a live browser through
+Discover or repair Playwright locators using live browser interaction via
 Playwright MCP. Determine the mode from the user's request:
 
-- **Explore mode**: The user wants locators for a feature or page
-- **Fix mode**: The user has a failing test or broken locator
-
-Before starting, read `REFERENCE.md` in this skill's folder for the
-team's locator conventions.
+- **Explore mode**: User wants to investigate a feature/page for locators
+- **Fix mode**: User has a failing test or broken locator to repair
 
 ## Pre-flight check
 
@@ -28,65 +25,87 @@ Never put passwords, tokens, or session cookies into the conversation.
   If the user pastes one, do not use or repeat it, and tell them to
   rotate it.
 - If a page needs a login, ask the user to sign in in the Playwright MCP
-  browser window and tell you when they are done.
-- Never read or print cookies, local storage, session storage, or saved
-  auth state.
+  browser window and tell you when they are done. Do not take a snapshot
+  or use any other tool until the user says sign-in is done. If no
+  browser window is visible (headless or isolated MCP), stop and ask the
+  user to set up a headed Playwright MCP.
+- Never read or print env files, cookies, local storage, session
+  storage, or saved auth state. Do not run commands that print env
+  values (`printenv`, `echo $VAR`), and do not open traces, reports, or
+  `test-results/` files.
+- Use only these Playwright MCP tools: `browser_navigate`,
+  `browser_navigate_back`, `browser_snapshot`, `browser_click`,
+  `browser_hover`, `browser_type`, `browser_fill_form`,
+  `browser_select_option`, `browser_press_key`, `browser_wait_for`,
+  `browser_handle_dialog`, `browser_tabs`, `browser_close`, and
+  `browser_generate_locator`. Do not use any other MCP tool (for
+  example, evaluate, run code, network, console, cookie, storage,
+  screenshot, or file tools) or any other browser tool. Do not install
+  packages.
+- Before you open any project file (test, POM, config, or fixture),
+  check it for hardcoded secrets with this match-only search. Files that
+  only read `process.env` do not match.
+
+  ```bash
+  grep -lEi -e "(password|passwd|secret|token|api[_-]?key|cookie|credential)[a-z_]*[\"']?[[:space:]]*[:=][[:space:]]*[\"'\`][^\"'\`\$]" -e "(bearer|basic)[[:space:]]+[A-Za-z0-9._~+/=-]{8,}" <file>
+  ```
+
+  If the file matches, do not open it. Tell the user that it has a
+  hardcoded secret and ask them to move it to an env var.
+- When you run tests, you may quote test names, pass or fail, and
+  assertion or locator error messages. Before you quote output, remove
+  any value that looks like a secret. If output shows a credential or
+  token, do not repeat it, and tell the user to rotate it.
 
 ## Locator priority (both modes)
 
 1. `getByRole` with accessible name
 2. `getByLabel`
-3. `getByTestId`
+3. `getByTestId` / data attributes
 4. CSS selectors — last resort only
 
-Never use auto-generated classes, positional selectors (`nth-child`), or
-exact text on dynamic content.
-
-To get a locator, use `browser_generate_locator` if it is available.
-If not, build it from the role and accessible name in the snapshot.
+Never use auto-generated classes (e.g., `css-1x2y3z`), positional
+selectors (`nth-child`), or exact text matches on dynamic content.
 
 ## Explore mode
 
-1. Open the page with `browser_navigate` and take a `browser_snapshot`.
-2. Interact to reveal hidden elements (dialogs, dropdowns, forms) with
-   `browser_click` or `browser_type`. Use test data only. Take a snapshot
-   after each interaction.
-3. Catalog the locators by element purpose. Note any wait conditions.
-4. Repeat key interactions 2-3 times to confirm each locator is stable
-   and selects exactly one element.
+Read [references/explore.md](references/explore.md) for detailed steps.
 
-Present the findings:
+1. Navigate to the target page/feature via Playwright MCP
+2. Snapshot before and after key interactions (dialogs, dropdowns, forms)
+3. Catalog discovered locators organized by element purpose
+4. Test reliability — verify each locator across multiple attempts
 
-    ## [Feature] Locators
-    - [Element]: `[locator]`
-      Wait condition: [if any]
-
-**-> STOP. Present the locators. Confirm with the user before using them.**
+**-> STOP. Present discovered locators and recommended strategies.
+Confirm with the user before documenting or using them.**
 
 ## Fix mode
 
-1. Read the failing test, its error, and the POM that holds the locator.
-2. Open the failing page with `browser_navigate` and take a snapshot.
-3. Classify the root cause before writing any code:
+Read [references/fix.md](references/fix.md) for detailed steps.
 
-   | Category | Symptom | Fix direction |
-   |---|---|---|
-   | Stale locator | Element not found, or timeout | Replace the locator from the live page |
-   | Text change | `toHaveText` fails with a new value | Update the expected value, or use a regex |
-   | Timing | Intermittent failure | Add a web-first assertion before the interaction |
-   | Session | Redirected to the login page | Ask the user to check the test's auth setup |
-   | Test data | Record not found, or wrong count | Fix the test setup |
-   | App change | Feature behavior changed | Update the test, or flag a regression |
+1. Analyze the error — identify the broken locator and its intent
+2. Navigate to the affected page via Playwright MCP and snapshot
+3. Find a replacement locator following the priority above
+4. Verify the replacement selects exactly one element and works across states
 
-**-> STOP. State the root cause and the file and line to change. Confirm with the user before writing code.**
+**-> STOP. Present the diagnosis and proposed fix. Confirm with the
+user before updating test files.**
 
-4. Find a replacement locator that follows the priority above.
-5. Update the test or POM. Check nearby locators for the same problem.
-6. Run the failing test, then related tests that use the same locator.
+5. Update the locator in the test/POM file and run the test to confirm
+
+## Critical rules
+
+- Always use Playwright MCP for live verification — never guess from source code
+- Snapshot before AND after interactions to capture state changes
+- For dialogs: wait for inner form fields, not the dialog wrapper
+- For repeated elements (tables, lists): use parent context + child selector
+- Verify new locators work in different states (empty, populated, loading)
+- Check downstream effects — other tests may use the same locator
 
 ## Anti-patterns
 
 - Typing credentials into login forms
-- Guessing locators from application source code instead of the live page
-- Fixing one locator without checking similar ones
-- Classifying the root cause after writing code
+- Reading application source code to guess locators instead of using MCP
+- Using auto-generated CSS classes or positional selectors
+- Fixing one locator without checking if similar ones are also broken
+- Skipping verification across different page states
