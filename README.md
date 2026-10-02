@@ -6,6 +6,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | Description |
 | :----- | :---------- |
+| [`dc-specs`](./plugins/dc-specs) | Spec-driven development: six skills that take a ticket to an approved spec with acceptance criteria, build it test first with evidence for each criterion, and verify the PR in a fresh session. Specs stay in Jira, Linear, Azure DevOps, GitHub Issues or markdown. |
 | [`training`](./plugins/training) | Skills for building skills (finding what to write, designing new workflows, improving and evaluating what you have), plus `context-coverage`, which audits how well your agent context (CLAUDE.md, AGENTS.md, Copilot instructions, rules, skills) covers your code, and Playwright testing skills for API tests, E2E tests, and locators. |
 
 ### What's in `training`
@@ -26,6 +27,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 ```shell
 /plugin marketplace add devclarityai/devclarity-marketplace
 /plugin install training@devclarity-marketplace
+/plugin install dc-specs@devclarity-marketplace
 ```
 
 Then run a skill by name, e.g.:
@@ -46,6 +48,7 @@ Refresh later with `/plugin marketplace update`.
   the **`claude`** CLI. These scripts may not run on every setup — and that's fine: each
   skill is written to **fall back** to performing the same steps with whatever tools your
   environment provides, so a missing interpreter degrades gracefully rather than blocking.
+- **dc-specs:** needs **Python 3.9+** and **git**, plus `gh`, `az`, or the Atlassian or Linear MCP server for your tracker. `spec-setup` checks each one and walks you through installing what's missing.
 - **Playwright skills:** need **Node.js** and **Playwright** in the project under test.
   `e2e-testing` and `managing-locators` also need the **Playwright MCP** server. The API and
   E2E skills save project conventions to `.claude/testing/` in the project on first use.
@@ -69,6 +72,9 @@ devclarity-marketplace/
 ├── .gitattributes           # LF line endings for *.sh (Windows safety)
 ├── LICENSE                  # MIT
 └── plugins/
+    ├── dc-specs/
+    │   ├── .claude-plugin/plugin.json
+    │   ├── hooks/, scripts/, skills/, references/, templates/, tests/
     └── training/
         ├── .claude-plugin/plugin.json
         └── skills/<skill>/{SKILL.md, scripts/, references/}
