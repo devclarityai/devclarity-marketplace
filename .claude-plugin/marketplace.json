@@ -13,6 +13,11 @@
       "name": "training",
       "source": "./plugins/training",
       "description": "DevClarity training skills and tooling for Claude Code."
+    },
+    {
+      "name": "dc-specs",
+      "source": "./plugins/dc-specs",
+      "description": "Spec-driven development: six skills that take a spec from draft to verified PR, on Jira, Linear, Azure DevOps, GitHub Issues or markdown."
     }
   ]
 }

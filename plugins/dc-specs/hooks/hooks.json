@@ -1,0 +1,18 @@
+{
+  "description": "dc-specs: a short note at session start in repos that use dc-specs (have specs/config.yaml). Silent everywhere else. Turn off with DC_SPECS_SESSION_NOTE=off.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "for p in python3 python py; do \"$p\" \"${CLAUDE_PLUGIN_ROOT}/scripts/dcspecs.py\" session-context </dev/null 2>/dev/null && break; done; exit 0",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
+      }
+    ]
+  }
+}
