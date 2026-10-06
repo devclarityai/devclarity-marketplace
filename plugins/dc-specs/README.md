@@ -2,7 +2,7 @@
 
 Spec-driven development for Claude Code: spec templates and six skills that take a spec from draft to close. The spec lives in the tracker the team already uses (Jira, Linear, Azure DevOps, GitHub Issues or a markdown file), with no copy kept anywhere else.
 
-`spec-implement` writes the PR description as evidence that each acceptance criterion is met. `spec-verify`, run in a new session, checks that evidence against the spec and posts its verdict as a PR comment.
+`spec-implement` writes the PR description as evidence that each acceptance criterion is met. `spec-verify`, run in a fresh session, checks that evidence against the spec and posts its verdict as a PR comment. `spec-implement` can start that fresh session as a subagent after asking.
 
 ## The flow
 
@@ -12,7 +12,7 @@ Spec-driven development for Claude Code: spec templates and six skills that take
 | 2 | `spec-template` | The team wants its own spec or evidence shape (optional) | Writes a spec template and its evidence template to `specs/templates/`. |
 | 3 | `spec-author` | A ticket or idea needs a spec | Writes numbered Given/When/Then criteria onto the source for a human to approve. |
 | 4 | `spec-implement` | The spec is approved | Builds it test first, records every answer as an amendment, and opens the PR with the evidence. |
-| 5 | `spec-verify` | The PR is open, in a new session | Audits the evidence against the frozen spec and posts a verdict per criterion. |
+| 5 | `spec-verify` | The PR is open, in a fresh session. `spec-implement` can start that fresh session as a subagent after asking | Audits the evidence against the frozen spec and posts a verdict per criterion. |
 | 6 | `spec-close` | The PR has merged | Adds any rule worth keeping to `CLAUDE.md` through a reviewed PR and posts a closing note. |
 
 The skills call the helper script, `scripts/dcspecs.py`. You don't need to run it yourself.

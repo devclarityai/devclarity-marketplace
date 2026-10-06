@@ -47,6 +47,6 @@ Stop at anything the framework's consult loop names, or when a criterion needs s
 1. Finish every row and section, and the CI line. A criterion without a passing test is `not verified`.
 2. Run `H evidence check --spec <spec> --evidence <evidence> --frozen <frozen_fingerprint> [--repo-tag <this repo>]` and fix every error.
 3. Show the human the description, then open the PR with it, or update it (the framework's PR operations).
-4. Tell the human to run `spec-verify` in a new session.
+4. After evidence check has passed and the PR description has been opened or updated, ask the human in this session whether to run `spec-verify` now in a subagent. When this session cannot start a subagent, tell the human to run `spec-verify` in a new session. A yes starts a subagent whose conversation did not write the code or the evidence. Its prompt says to run `spec-verify` for this spec and this PR. That prompt does not include the implementation write-up. That prompt does not include the evidence body. The subagent loads the spec from its source and the evidence from the PR, as `spec-verify` already says. The implementing session does not run the audit. The implementing session does not post the verdict. The subagent follows `spec-verify`, including showing the verdict and getting a yes before posting it. Any answer other than yes does not start a subagent. Any answer other than yes does not tell the human to go run `spec-verify`.
 
-On every later push, update the rows it changed, check again, update the description, and tell the human to verify again.
+On every later push, update the rows it changed, check again, update the description, and ask that same question after the description is updated.
