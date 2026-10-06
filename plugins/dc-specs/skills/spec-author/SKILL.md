@@ -43,7 +43,7 @@ One criterion per line, in the framework's form. Split any that checks two thing
 
 ## 6. Lint and write
 
-Run `H lint --spec <tmp>` and fix every error. Show the human the spec, then write it with the adapter's Create. For a tracker, read it back and lint what came back. Run Status: a new spec must be `not-approved`; if it is not, the approval status is the tracker's creation default, so run `spec-setup` to change it.
+Run `H lint --spec <tmp>` and fix every error. Show the human the spec, then write it with the adapter's Create. For a tracker, read it back and lint what came back with `H lint --published`. For markdown, lint the written spec file with `H lint --published --spec <path>`. Run Status: a new spec must be `not-approved`; if it is not, the approval status is the tracker's creation default, so run `spec-setup` to change it.
 
 ## 7. Hand off
 

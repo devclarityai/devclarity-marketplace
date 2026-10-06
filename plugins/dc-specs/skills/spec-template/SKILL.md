@@ -51,6 +51,8 @@ description: <when to use it, one line>
 
 No `# ` title heading. Prompts go in `<!-- -->` comments, which are dropped on trackers.
 
+`H lint` catches a placeholder only when it is lowercase `<...>` text of letters, digits, spaces and `,.:'-`. A template placeholder that starts with a capital letter, or contains any other punctuation, is not caught.
+
 Then write `specs/templates/<name>.evidence.md`, starting from the plugin's `templates/<start>.evidence.md`, or `feature` for Blank. Keep it small. When changing an existing one, add 1 to `version`.
 
 Run `H templates` and fix any `errors` on both. Then `H render --template <name> --title "Example" > <tmp>` and `H evidence render --spec <tmp> --template <name>`, and show the human both.

@@ -22,7 +22,7 @@ Source-specific steps live in `references/sources/<source>.md`, the adapter. Ski
 | `setup-check` | Check the config, connection, labels and repo templates. |
 | `templates` | The templates this repo can use, each with its evidence template. |
 | `render --template N --title T [--id ID]` | A new spec from a template, with the header for this source. |
-| `lint [--spec F]` | Check sections, criteria, amendments and placeholders. Prints the criteria, amendment count and fingerprint. |
+| `lint [--spec F] [--approved] [--published]` | Check sections, criteria, amendments and placeholders, plus the slide-image, placeholder and published-image checks. `--approved` reports those three as warnings. `--published` checks that tracker images are uploaded and markdown image files exist. Prints the criteria, amendment count and fingerprint. |
 | `fingerprint [--spec F] [--frozen FP]` | The fingerprint, and whether it differs from `--frozen`. |
 | `amend --criterion AC2 --text "..." --by Name [--frozen FP] [--spec F \| --issue N \| --item N]` | Add a dated amendment. Refuses if the spec no longer matches `--frozen`, or if the write would change the frozen text. `--spec` edits the file, stdin prints the new body, `--issue` edits a GitHub issue, `--item` an Azure DevOps work item. |
 | `status <target>` | The freeze state. The adapter's Status says what the target is. |
