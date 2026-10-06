@@ -2,7 +2,7 @@
 
 Spec-driven development for Claude Code: spec templates and six skills that take a spec from draft to close. The spec lives in the tracker the team already uses (Jira, Linear, Azure DevOps, GitHub Issues or a markdown file), with no copy kept anywhere else.
 
-`spec-implement` writes the PR description as evidence that each acceptance criterion is met. `spec-verify`, run in a fresh session, checks that evidence against the spec and posts its verdict as a PR comment. `spec-implement` can start that fresh session as a subagent after asking.
+`spec-implement` writes the PR description as evidence that each acceptance criterion is met. `spec-verify`, run in a fresh session, checks that evidence against the spec and posts its verdict as a PR comment, and `spec-implement` can start that fresh session as a subagent after asking.
 
 ## The flow
 
