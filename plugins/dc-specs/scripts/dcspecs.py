@@ -785,8 +785,67 @@ def structure_errors(body: str) -> list:
     return errors
 
 
-def lint(text: str) -> dict:
-    """Check a spec's sections, criteria, amendments and placeholders.
+def _without_code(text: str) -> str:
+    """Drop fenced code blocks and inline code spans."""
+    kept, fence = [], False
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            fence = not fence
+            continue
+        if not fence:
+            kept.append(re.sub(r"`[^`]*`", "", line))
+    return "\n".join(kept)
+
+
+def _for_placeholder_scan(text: str) -> str:
+    """Drop comments, code and <each ...> markers before a placeholder scan."""
+    return re.sub(r"<each\b[^>]*>", "", _without_code(_strip_comments(text)))
+
+
+def _loose_placeholders(body: str) -> list:
+    """Placeholder hits in level-2 sections above Amendments, except Acceptance criteria."""
+    secs, lines = sections(body)
+    amend = section(body, "Amendments")
+    found = []
+    for title, level, st, en in secs:
+        if level == 2 and st < (amend[1] if amend else len(lines)) and _norm_title(title) != "acceptance criteria":
+            visible = _for_placeholder_scan("\n".join(lines[st + 1:en]))
+            found += [f"placeholder {hit} left in section: {title}" for hit in PLACEHOLDER_RE.findall(visible)]
+    return found
+
+
+def _relative_url(url: str) -> bool:
+    """Whether an image destination is a path relative to the spec file, not an absolute or remote URL."""
+    return not re.match(r"[A-Za-z][A-Za-z0-9+.-]*://", url) and not os.path.isabs(url)
+
+
+def _image_urls(text: str) -> list:
+    """The destinations of Markdown images in text, in order."""
+    return re.findall(r"!\[[^\]]*\]\(([^)\s]+)", text)
+
+
+def _published_image_errors(text: str, source: str | None, spec_path: str | None) -> list:
+    """Local tracker image urls, or relative markdown image paths that are not beside the spec file."""
+    if source in ("github", "jira", "linear", "ado"):
+        visible = _without_code(frozen_part(text))
+        return [f"image not uploaded: {url}" for url in _image_urls(visible)
+                if not url.startswith(("http://", "https://"))]
+    if source != "markdown" or not spec_path:
+        return []
+    folder = os.path.dirname(os.path.abspath(spec_path))
+    return [f"image not found: {url}" for url in _image_urls(text)
+            if _relative_url(url) and not os.path.isfile(os.path.join(folder, url))]
+
+
+def lint(text: str, approved: bool = False, published: bool = False, source: str | None = None,
+         spec_path: str | None = None) -> dict:
+    """Check a spec's sections, criteria, amendments, mockup slides and placeholders.
+
+    Args:
+        approved: Report the slide-image, loose-placeholder and published-image checks as warnings.
+        published: Also check that tracker images are uploaded, or markdown image files exist.
+        source: The config's source. Used only when published is set.
+        spec_path: The spec file. Markdown image paths resolve against its folder.
 
     Returns:
         {template, errors, warnings, criteria (the ids), amendments (the count), fingerprint, ok}.
@@ -804,7 +863,8 @@ def lint(text: str) -> dict:
     for c in crit or []:
         if not c["gwt"]:
             warnings.append(f"{c['id']} is not written as Given/When/Then")
-        if PLACEHOLDER_RE.search(c["text"]) or re.search(r"\bTODO\b|FILL", c["text"]):
+        quoted = re.sub(r"`[^`]*`", "", c["text"])
+        if PLACEHOLDER_RE.search(quoted) or re.search(r"\bTODO\b|FILL", c["text"]):
             errors.append(f"{c['id']} still has a template placeholder")
     errors += [f"amendment not in '- YYYY-MM-DD ACn: text' form: {b[:80]}" for b in bad]
     errors += [f"amendment {a['date']} cites {cid}, which is not a criterion"
@@ -814,6 +874,11 @@ def lint(text: str) -> dict:
         if level == 2 and _norm_title(title) not in ("amendments", "closing note") \
                 and not _strip_comments("\n".join(lines[st + 1:en])).strip():
             warnings.append(f"section is empty: {title} (write 'None' if that is intended)")
+    fresh = [f"Slide {s['n']} has no image" for s in mockup_slides(text) if not s["image"]]
+    fresh += _loose_placeholders(body)
+    if published:
+        fresh += _published_image_errors(text, source, spec_path)
+    (warnings if approved else errors).extend(fresh)
     return {"template": spec_meta(text)["template"], "errors": errors, "warnings": warnings, "criteria": ids,
             "amendments": len(amends or []), "fingerprint": fingerprint(text), "ok": not errors}
 
@@ -2288,8 +2353,16 @@ def cmd_setup_check(a):
 
 
 def cmd_lint(a):
-    """The lint command. Exit 1 when the spec has errors."""
-    res = lint(_read(a.spec))
+    """The lint command. Exit 1 on errors; exit 2 when --published has no usable config or spec file."""
+    source, spec_path = None, None if a.spec in (None, "-") else a.spec
+    if a.published:
+        try:
+            source = load_config(a.config)["source"]
+        except SpecError as e:
+            raise SpecError(f"a config is needed for --published ({e})")
+        if source == "markdown" and not spec_path:
+            raise SpecError("stdin has no folder to resolve image paths against")
+    res = lint(_read(a.spec), a.approved, a.published, source, spec_path)
     return res, 0 if res["ok"] else 1
 
 
@@ -2410,7 +2483,8 @@ CLI = {
     "templates": (lambda a: template_list(load_config(a.config)), "the spec templates this repo can use", ""),
     "render": (lambda a: render_template(load_config(a.config), a.template, a.title, a.id),
                "a new spec from a template, with the header for this repo's source", "--template! --title! --id"),
-    "lint": (cmd_lint, "check a spec's sections, criteria and amendments", "--spec"),
+    "lint": (cmd_lint, "check sections, criteria, amendments, slide images, placeholders and published images",
+             "--spec --approved? --published?"),
     "fingerprint": (cmd_fingerprint, "the fingerprint of a spec's frozen part", "--spec --frozen"),
     "amend": (cmd_amend, "add a dated amendment, refusing if the frozen text would change",
               "--spec --issue --item --criterion! --text! --by --date --frozen"),

@@ -977,5 +977,195 @@ class SessionNote(unittest.TestCase):
         self.assertIn("This repo uses dc-specs", r.stdout)
 
 
+class LintSlides(unittest.TestCase):
+    """Slide images, placeholders outside the criteria, and published images."""
+
+    def spec(self, middle="", criteria="- AC1 Given a, when b, then c."):
+        return (f"# Title\n\n## Intent\n\nRemind them.\n\n{middle}"
+                f"## Acceptance criteria\n\n{criteria}\n\n## Amendments\n")
+
+    def lint(self, body=None, *args, cwd=None, spec=None):
+        """Run H lint and return (exit code, parsed JSON). Exit 2 is a failure here."""
+        cmd = (["--spec", spec] if spec else []) + list(args)
+        r = run("lint", *cmd, cwd=cwd, stdin=None if spec else body)
+        self.assertNotEqual(r.returncode, 2, r.stderr)
+        return r.returncode, json.loads(r.stdout)
+
+    def repo(self, source):
+        root, _ = git_repo()
+        text = (d.build_config("github", "spec:approved", repo="acme/app") if source == "github"
+                else d.build_config("markdown", "approved"))
+        d.init_config(root, text, False, False)
+        return root
+
+    def test_ac1_slide_with_image_has_no_slide_error(self):
+        body = self.spec("## TUI mockups\n\n- Slide 1: empty - 80 cols\n![screen](./s.png)\n\n")
+        code, res = self.lint(body)
+        self.assertEqual(code, 0, res["errors"])
+        self.assertFalse(any(e.startswith("Slide ") for e in res["errors"]))
+        _, bare = self.lint(self.spec("## TUI mockups\n\n- Slide 1: empty - 80 cols\n\n"))
+        self.assertIn("Slide 1 has no image", bare["errors"])
+
+    def test_ac2_slide_without_image_exits_1(self):
+        body = self.spec("## TUI mockups\n\n- Slide 3: empty - 80 cols\n\n")
+        code, res = self.lint(body)
+        self.assertIn("Slide 3 has no image", res["errors"])
+        self.assertEqual(code, 1)
+
+    def test_ac3_image_attaches_to_the_later_slide(self):
+        body = self.spec("## TUI mockups\n\n- Slide 1: empty - 80 cols\n- Slide 2: filled - 80 cols\n"
+                         "![screen](./s.png)\n\n")
+        _, res = self.lint(body)
+        self.assertIn("Slide 1 has no image", res["errors"])
+        self.assertFalse(any("Slide 2" in e for e in res["errors"]))
+
+    def test_ac4_no_mockups_section_has_no_slide_error(self):
+        code, res = self.lint(self.spec())
+        self.assertEqual(code, 0, res["errors"])
+        self.assertFalse(any(e.startswith("Slide ") for e in res["errors"]))
+        _, bare = self.lint(self.spec("## TUI mockups\n\n- Slide 1: empty - 80 cols\n\n"))
+        self.assertIn("Slide 1 has no image", bare["errors"])
+
+    def test_ac5_mockups_section_none_has_no_slide_error(self):
+        code, res = self.lint(self.spec("## TUI mockups\n\nNone\n\n"))
+        self.assertEqual(code, 0, res["errors"])
+        self.assertFalse(any(e.startswith("Slide ") for e in res["errors"]))
+        _, bare = self.lint(self.spec("## TUI mockups\n\n- Slide 1: empty - 80 cols\n\n"))
+        self.assertIn("Slide 1 has no image", bare["errors"])
+
+    def test_ac6_placeholder_outside_criteria_names_section(self):
+        body = self.spec("## TUI mockups\n\nThe <state> is unset.\n\n")
+        code, res = self.lint(body)
+        self.assertIn("placeholder <state> left in section: TUI mockups", res["errors"])
+        self.assertEqual(code, 1)
+
+    def test_ac7_placeholder_in_comment_code_or_each_marker_is_ignored(self):
+        bare = self.spec("## Notes\n\n<state>\n\n")
+        _, res = self.lint(bare)
+        self.assertTrue(any("placeholder" in e for e in res["errors"]))
+        cases = {
+            "comment": "<!-- <state> -->\n",
+            "fence": "```\n<state>\n```\n",
+            "inline": "See `<state>`.\n",
+            "each": "<each criterion>\n",
+        }
+        for name, block in cases.items():
+            with self.subTest(name):
+                _, got = self.lint(self.spec(f"## Notes\n\n{block}\n"))
+                self.assertFalse(any("placeholder" in e for e in got["errors"]), got["errors"])
+
+    def test_ac8_local_image_without_published_is_not_an_error(self):
+        root = self.repo("github")
+        body = self.spec("![x](./x.png)\n\n")
+        code, res = self.lint(body, cwd=root)
+        self.assertEqual(code, 0, res["errors"])
+        self.assertFalse(any(e.startswith("image not") for e in res["errors"]))
+        _, published = self.lint(body, "--published", cwd=root)
+        self.assertIn("image not uploaded: ./x.png", published["errors"])
+
+    def test_ac9_github_local_image_with_published_is_an_error(self):
+        root = self.repo("github")
+        code, res = self.lint(self.spec("![x](./x.png)\n\n"), "--published", cwd=root)
+        self.assertIn("image not uploaded: ./x.png", res["errors"])
+        self.assertEqual(code, 1)
+
+    def test_ac10_https_image_with_published_is_not_an_error(self):
+        root = self.repo("github")
+        body = self.spec("![x](https://example.com/s.png)\n\n")
+        code, res = self.lint(body, "--published", cwd=root)
+        self.assertEqual(code, 0, res["errors"])
+        self.assertFalse(any(e.startswith("image not") for e in res["errors"]))
+
+    def test_ac11_markdown_image_that_exists_is_not_an_error(self):
+        root = self.repo("markdown")
+        with open(os.path.join(root, "specs", "x.png"), "wb") as f:
+            f.write(b"png")
+        path = os.path.join(root, "specs", "s.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.spec("![x](./x.png)\n\n"))
+        code, res = self.lint(None, "--published", spec=path, cwd=root)
+        self.assertEqual(code, 0, res["errors"])
+        self.assertFalse(any(e.startswith("image not") for e in res["errors"]))
+
+    def test_ac12_markdown_missing_image_exits_1(self):
+        root = self.repo("markdown")
+        path = os.path.join(root, "specs", "s.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.spec("![x](./x.png)\n\n"))
+        code, res = self.lint(None, "--published", spec=path, cwd=root)
+        self.assertTrue(any(e.startswith("image not found: ./x.png") for e in res["errors"]), res["errors"])
+        self.assertEqual(code, 1)
+
+    def test_ac13_published_without_config_exits_2(self):
+        root, _ = git_repo()
+        r = run("lint", "--published", cwd=root, stdin=self.spec())
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("config is needed", r.stderr)
+
+    def test_ac14_published_markdown_stdin_exits_2(self):
+        root = self.repo("markdown")
+        r = run("lint", "--published", cwd=root, stdin=self.spec())
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("unrecognized", r.stderr)
+        self.assertIn("folder", r.stderr)
+
+    def test_ac15_approved_demotes_new_checks_to_warnings(self):
+        body = self.spec("## TUI mockups\n\n- Slide 1: empty - 80 cols\n\nThe <state> is unset.\n\n")
+        code, res = self.lint(body, "--approved")
+        self.assertEqual(res["errors"], [])
+        self.assertIn("Slide 1 has no image", res["warnings"])
+        self.assertIn("placeholder <state> left in section: TUI mockups", res["warnings"])
+        self.assertEqual(code, 0)
+
+    def test_ac16_approved_keeps_duplicate_criterion_an_error(self):
+        body = self.spec(criteria="- AC1 Given a, when b, then c.\n- AC1 Given d, when e, then f.")
+        code, res = self.lint(body, "--approved")
+        self.assertTrue(any("duplicate criterion ids" in e for e in res["errors"]), res["errors"])
+        self.assertEqual(code, 1)
+
+    def test_ac17_fingerprint_is_unchanged_by_the_new_flags(self):
+        root = self.repo("github")
+        want = json.loads(run("fingerprint", cwd=root, stdin=SPEC).stdout)["fingerprint"]
+        self.assertEqual(want, d.fingerprint(SPEC))
+        for args in ((), ("--approved",), ("--published",)):
+            code, res = self.lint(SPEC, *args, cwd=root)
+            self.assertEqual(code, 0, res["errors"])
+            self.assertEqual(res["fingerprint"], want, args)
+
+    def test_ac18_spec_implement_lints_with_approved(self):
+        with open(os.path.join(ROOT, "skills", "spec-implement", "SKILL.md"), encoding="utf-8") as f:
+            step = f.read().split("## 2.")[0]
+        self.assertIn("H lint --approved", step)
+
+    def test_ac19_spec_author_lints_published_tracker_and_markdown(self):
+        with open(os.path.join(ROOT, "skills", "spec-author", "SKILL.md"), encoding="utf-8") as f:
+            step = f.read().split("## 6.")[1].split("## 7.")[0]
+        self.assertIn("For a tracker, read it back and lint what came back with `H lint --published`", step)
+        self.assertIn("lint the written spec file with `H lint --published --spec <path>`", step)
+
+    def test_ac20_spec_template_names_the_placeholders_lint_catches(self):
+        with open(os.path.join(ROOT, "skills", "spec-template", "SKILL.md"), encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("lowercase `<...>` text of letters, digits, spaces and `,.:'-`", text)
+
+    def test_ac21_framework_lint_row_names_the_new_checks(self):
+        with open(os.path.join(ROOT, "references", "framework.md"), encoding="utf-8") as f:
+            row = next(line for line in f.read().splitlines() if line.startswith("| `lint"))
+        for phrase in ("--approved", "--published", "slide-image", "published-image"):
+            self.assertIn(phrase, row, phrase)
+        self.assertRegex(row, r"(?<![A-Za-z])placeholder(?![A-Za-z])")
+
+    def test_ac22_plugin_version_is_higher_than_0_9_4(self):
+        with open(os.path.join(ROOT, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+            version = tuple(int(part) for part in json.load(f)["version"].split("."))
+        self.assertGreater(version, (0, 9, 4))
+
+    def test_ac24_criterion_placeholder_in_inline_code_is_ignored(self):
+        body = self.spec(criteria="- AC1 Given a, when b, then the text is `<state>`.")
+        code, res = self.lint(body)
+        self.assertFalse(any("placeholder" in e for e in res["errors"]), res["errors"])
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/framework.md` and `${CLAUDE_PLUGIN_ROOT}/
 
 ## 1. Confirm it is frozen
 
-Run Status and act on the state as the framework says. Continue only at `frozen`. Run `H lint` on the spec; errors in a frozen spec are the human's to fix.
+Run Status and act on the state as the framework says. Continue only at `frozen`. Run `H lint --approved` on the spec; errors in a frozen spec are the human's to fix.
 
 Tell the human in one line: the spec id, `frozen_fingerprint`, and the criteria and amendment counts.
 
