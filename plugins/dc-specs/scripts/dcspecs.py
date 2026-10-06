@@ -181,7 +181,7 @@ def parse_yaml_subset(text: str) -> dict:
         if val.strip():
             parent[key] = _scalar(val)
             continue
-        nxt = next((l for l in lines[n:] if l.strip()), "")
+        nxt = next((lines[j] for j in range(n, len(lines)) if lines[j].strip()), "")
         if nxt.strip().startswith("- "):
             parent[key] = []
         else:
