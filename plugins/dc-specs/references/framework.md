@@ -90,7 +90,7 @@ When the spec is ambiguous, contradicts the code or a `CLAUDE.md` rule, is wrong
 The spec is the claim; the PR is the proof.
 
 - **Evidence** is the PR description. `spec-implement` writes it while building and updates it on every push.
-- **The verdict** is a new PR comment. `spec-verify` writes it in a fresh session, never the implementing one, re-runs every test and trusts none of the PR's claims. It never edits the evidence or an old verdict.
+- **The verdict** is a new PR comment. `spec-verify` writes it in a fresh session, never the implementing one, re-runs every test and trusts none of the PR's claims. It never edits the evidence or an old verdict. A subagent started by `spec-implement` after the human agrees counts as the fresh session. The implementing conversation still does not write the verdict.
 - The helper checks structure only. Whether evidence proves its criterion is the verifier's judgment.
 - Only a human grants a waiver. The verifier records it.
 

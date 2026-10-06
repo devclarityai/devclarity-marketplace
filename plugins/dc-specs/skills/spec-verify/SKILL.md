@@ -9,7 +9,7 @@ Audit the PR's evidence, criterion by criterion, and post a verdict. You do not 
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/framework.md` and `${CLAUDE_PLUGIN_ROOT}/references/evidence.md` first, then the adapter for the configured source.
 
-If this conversation wrote the code or the evidence, stop and tell the human to run spec-verify in a new session.
+If this conversation wrote the code or the evidence, stop and tell the human to run spec-verify in a new session. A subagent started only to verify, which did not write the code or the evidence, is a fresh session and continues.
 
 ## 1. Load
 
