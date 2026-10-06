@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  dc-specs-tests:
+    name: dc-specs tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.x"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s plugins/dc-specs/tests -v
+
+  plugins:
+    name: Plugins and skills
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Manifests, skill frontmatter and version bumps
+        run: python .github/scripts/check_plugins.py ${{ github.event_name == 'pull_request' && format('--base origin/{0}', github.base_ref) || '' }}
+
+      - name: Spec templates
+        run: |
+          python plugins/dc-specs/scripts/dcspecs.py templates > templates.json
+          python - <<'EOF'
+          import json, sys
+          bad = [(t["name"], t["errors"] + t["evidence"]["errors"]) for t in json.load(open("templates.json"))
+                 if t["errors"] or t["evidence"]["errors"]]
+          for name, errs in bad:
+              print(f"::error::spec template {name}: {'; '.join(errs)}")
+          sys.exit(1 if bad else 0)
+          EOF
+
+      - name: skill-lint on changed skills (advisory)
+        if: github.event_name == 'pull_request'
+        run: |
+          skills=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+            | sed -nE 's#^(plugins/[^/]+/skills/[^/]+)/.*#\1#p' | sort -u)
+          {
+            echo "## skill-lint"
+            echo
+            echo "Flags are improvement leads, not failures."
+            [ -z "$skills" ] && echo && echo "No skills changed."
+            for s in $skills; do
+              [ -f "$s/SKILL.md" ] || continue
+              echo
+              echo "### \`$s\`"
+              echo '```'
+              bash plugins/training/skills/skill-improver/scripts/skill-lint.sh "$s"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
