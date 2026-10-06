@@ -1,0 +1,6 @@
+# dc-specs: where specs live and what freezes them. See the plugin's references/config.md.
+source: github
+approval:
+  status: "spec:approved"
+github:
+  repo: devclarityai/devclarity-marketplace
