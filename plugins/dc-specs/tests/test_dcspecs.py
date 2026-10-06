@@ -1140,10 +1140,8 @@ class LintSlides(unittest.TestCase):
     def test_ac19_spec_author_lints_published_tracker_and_markdown(self):
         with open(os.path.join(ROOT, "skills", "spec-author", "SKILL.md"), encoding="utf-8") as f:
             step = f.read().split("## 6.")[1].split("## 7.")[0]
-        self.assertIn("H lint --published", step)
-        self.assertIn("tracker", step.lower())
-        self.assertIn("--published --spec", step)
-        self.assertIn("<path>", step)
+        self.assertIn("For a tracker, read it back and lint what came back with `H lint --published`", step)
+        self.assertIn("lint the written spec file with `H lint --published --spec <path>`", step)
 
     def test_ac20_spec_template_names_the_placeholders_lint_catches(self):
         with open(os.path.join(ROOT, "skills", "spec-template", "SKILL.md"), encoding="utf-8") as f:
@@ -1153,8 +1151,9 @@ class LintSlides(unittest.TestCase):
     def test_ac21_framework_lint_row_names_the_new_checks(self):
         with open(os.path.join(ROOT, "references", "framework.md"), encoding="utf-8") as f:
             row = next(line for line in f.read().splitlines() if line.startswith("| `lint"))
-        for phrase in ("--approved", "--published", "slide-image", "placeholder", "published-image"):
+        for phrase in ("--approved", "--published", "slide-image", "published-image"):
             self.assertIn(phrase, row, phrase)
+        self.assertRegex(row, r"(?<![A-Za-z])placeholder(?![A-Za-z])")
 
     def test_ac22_plugin_version_is_higher_than_0_9_4(self):
         with open(os.path.join(ROOT, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
