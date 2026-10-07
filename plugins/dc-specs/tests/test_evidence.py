@@ -338,6 +338,16 @@ class Verdict(unittest.TestCase):
         stray = verdict(self.cfg, self.ev) + "\n### Waivers\n\n- AC2: waived by P until 2026-10-15 - x\n"
         self.assertIn("its row is not marked waived", errs(self.check(stray, today="2026-09-29")))
 
+    def test_freeze_waiver(self):
+        v = verdict(self.cfg, self.ev)
+        ok = v + "\n### Waivers\n\n- freeze: waived by Parker Kain until 2026-10-20 - az fails on Windows\n"
+        res = self.check(ok, today="2026-10-19")
+        self.assertTrue(res["ok"], errs(res))
+        self.assertEqual(res["result_line"], self.check(v)["result_line"])
+        self.assertIn("freeze waiver expired on 2026-10-20", errs(self.check(ok, today="2026-10-21")))
+        bad = errs(self.check(ok.replace(" until 2026-10-20", ""), today="2026-10-19"))
+        self.assertIn("- freeze: waived by <name> until YYYY-MM-DD - <reason>", bad)
+
 
 class VerdictLatest(unittest.TestCase):
     """Finding the latest verdict comment for a PR head."""
