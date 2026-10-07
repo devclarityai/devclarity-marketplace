@@ -117,8 +117,9 @@ def git_repo(branch="main"):
 
 
 def run(*args, cwd=None, stdin=None, env=None):
-    """Run the helper CLI as a subprocess with text output."""
-    return subprocess.run(H + list(args), cwd=cwd, input=stdin, capture_output=True, text=True, env=env)
+    """Run the helper CLI as a subprocess, decoding its output as UTF-8, which the helper always writes."""
+    return subprocess.run(H + list(args), cwd=cwd, input=stdin, capture_output=True, text=True, encoding="utf-8",
+                          env=env)
 
 
 class Config(unittest.TestCase):
