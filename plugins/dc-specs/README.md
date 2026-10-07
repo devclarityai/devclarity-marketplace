@@ -30,6 +30,10 @@ The plugin needs Python 3.9 or later and git, on macOS, Linux or Windows, plus t
 
 In the repo you want to use specs in, ask Claude to "set up dc-specs". `spec-setup` checks the tools, asks where your team tracks work and which status approves a spec, and commits `specs/config.yaml`. Then ask it to "spec this ticket" to write your first spec.
 
+## Reporting a problem
+
+Ask Claude to "report a dc-specs bug" or "report issue". `report-issue` searches the existing issues for a duplicate, drafts a bug report or feature request with your dc-specs, OS and tool versions, and files it on [devclarityai/devclarity-marketplace](https://github.com/devclarityai/devclarity-marketplace/issues) once you say yes. It leaves out your specs, file paths, repo names and tracker details unless you typed them into the report. Without a working `gh`, it gives you a prefilled link to submit in the browser.
+
 ## Session note
 
 At session start in a repo whose git root has `specs/config.yaml`, the plugin's one hook adds a short note: which tracker holds the specs, the spec id the branch is named for, and that approved specs only change below Amendments. It never repeats text the repo controls, so a cloned repo cannot put instructions into it. Elsewhere it prints nothing. It reads only the config and git, and never fails a session.
@@ -40,7 +44,7 @@ Turn it off with `DC_SPECS_SESSION_NOTE=off` (also `0`, `false`, `no`), in the s
 
 | Path | Holds |
 |---|---|
-| `skills/` | The six skills |
+| `skills/` | The six spec skills, and `report-issue` |
 | `hooks/hooks.json` | The session note (`dcspecs.py session-context`) |
 | `templates/` | The default spec templates, their evidence templates (`<name>.evidence.md`), and the verdict template |
 | `references/framework.md` | The rules every skill shares, and the helper's commands |

@@ -454,6 +454,78 @@ def deps(source: str | None) -> dict:
             "agent_checks": [SOURCE_MCP[source]] if source in SOURCE_MCP else []}
 
 
+# ---------------------------------------------------------------- report-issue
+
+REPORT_REPO = "devclarityai/devclarity-marketplace"
+REPORT_LINK_LIMIT = 8000
+REPORT_LABELS = ("bug", "enhancement")
+
+
+def plugin_version() -> str:
+    """This plugin's version from .claude-plugin/plugin.json, or 'unknown'."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude-plugin", "plugin.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return str(json.load(f)["version"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return "unknown"
+
+
+def _version_in(text: str) -> str:
+    """The first dotted version number in text, or 'unknown', so no path in a tool's output is echoed."""
+    m = re.search(r"\d+(?:\.\d+)+", text or "")
+    return m.group(0) if m else "unknown"
+
+
+def report_env(cfg: dict | None) -> dict:
+    """The environment for a dc-specs issue, with nothing from the reporter's repo in it.
+
+    Only version numbers are kept from tool output, so install paths and usernames never appear. The config gives
+    only its source type; repos, project keys, URLs and other values are left out.
+
+    Returns:
+        {dc_specs, os, python, source, tools}, where source is None without a valid config and tools maps git and the
+            source's tools to a version, 'not found' or 'unknown'.
+    """
+    source = cfg["source"] if cfg else None
+    tools = {}
+    for tool in ["git"] + SOURCE_TOOLS.get(source or "", []):
+        if not shutil.which(tool):
+            tools[tool] = "not found"
+        elif tool == "az":   # az --version can call home; az version reads only what is installed
+            r = _run(["az", "version", "-o", "json"])
+            try:
+                info = json.loads(r.stdout) if r and r.returncode == 0 else {}
+            except ValueError:
+                info = {}
+            ext = info.get("extensions", {}).get("azure-devops")
+            tools["az"] = _version_in(str(info.get("azure-cli", "")))
+            tools["azure-devops extension"] = _version_in(str(ext)) if ext else "not installed" if info else "unknown"
+        else:
+            r = _run([tool, "--version"])
+            tools[tool] = _version_in((r.stdout or "").split("\n")[0]) if r and r.returncode == 0 else "unknown"
+    if source == "ado" and "azure-devops extension" not in tools:
+        tools["azure-devops extension"] = "not found"
+    return {"dc_specs": plugin_version(), "os": f"{os_name()} {_version_in(platform.release())}",
+            "python": platform.python_version(), "source": source, "tools": tools}
+
+
+def report_link(title: str, label: str, body: str) -> dict:
+    """A prefilled new-issue link on the dc-specs repo, for a reporter without a working gh.
+
+    The body goes into the link only while the whole link stays within REPORT_LINK_LIMIT characters, which browsers
+    and GitHub accept. Otherwise the link carries the title and label, and the body comes back to paste.
+
+    Returns:
+        {url, length, body_in_link}, plus body when body_in_link is false.
+    """
+    base = f"https://github.com/{REPORT_REPO}/issues/new?" + urllib.parse.urlencode({"title": title, "labels": label})
+    full = base + "&" + urllib.parse.urlencode({"body": body}) if body else base
+    if len(full) <= REPORT_LINK_LIMIT:
+        return {"url": full, "length": len(full), "body_in_link": True}
+    return {"url": base, "length": len(base), "body_in_link": False, "body": body}
+
+
 def setup_check(cfg: dict) -> dict:
     """Check that a repo's setup works: git, the config's branch, repo templates and the source's connection.
 
@@ -2443,6 +2515,15 @@ def cmd_deps(a):
     return res, 0 if res["ok"] else 1
 
 
+def cmd_report_env(a):
+    """The report-env command: the environment for an issue, with no source when there is no valid config."""
+    try:
+        cfg = load_config(a.config)
+    except SpecError:
+        cfg = None
+    return report_env(cfg)
+
+
 def cmd_evidence(a):
     """The evidence command: render the PR description, or check it (exit 1 on errors)."""
     cfg, spec = load_config(a.config), _read(a.spec)
@@ -2497,6 +2578,11 @@ CLI = {
     "verdict": (cmd_verdict, "render or check a verdict comment, or find the latest one",
                 "action=render|check|latest --spec --evidence --verdict --head --comments --id --url --repo-tag "
                 "--frozen --today --out"),
+    "report-env": (cmd_report_env, "the dc-specs, OS, Python and tool versions for an issue, with no paths or "
+                                   "config values", ""),
+    "report-link": (lambda a: report_link(a.title, a.label, _read(a.body_file)),
+                    "a prefilled new-issue link on the dc-specs repo, with the body only when it fits",
+                    "--title! --label=bug|enhancement! --body-file!"),
     "session-context": (None, "the session-start note; prints nothing unless this repo uses dc-specs", ""),
 }
 FLAG_KINDS = {"!": {"required": True}, "*": {"action": "append", "default": []}, "?": {"action": "store_true"}}
