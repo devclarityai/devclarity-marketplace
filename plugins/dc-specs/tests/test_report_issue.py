@@ -41,6 +41,7 @@ class ReportEnv(unittest.TestCase):
         self.assertEqual(res["source"], "github")
         self.assertEqual(list(res["tools"]), ["git", "gh"])
         self.assertRegex(res["tools"]["git"], r"^\d+(\.\d+)+$")
+        self.assertRegex(res["tools"]["gh"], r"^\d+(\.\d+)+$" if d.shutil.which("gh") else r"^not found$")
 
     def test_ado_lists_az_and_its_extension(self):
         without(self, "az")
