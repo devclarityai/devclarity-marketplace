@@ -201,7 +201,9 @@ class ReportIssueSkill(unittest.TestCase):
 
     def test_client_data_is_redacted(self):
         s = self.step("Keep client data out")
-        for word in ("spec text", "file paths", "repo or org names", "tracker project keys", "URLs",
+        self.assertIn("It never holds spec text,", s)
+        self.assertNotRegex(s, r"(?i)may (quote|include|hold)[^.]*spec text")
+        for word in ("file paths", "repo or org names", "tracker project keys", "URLs",
                      "config values", "unless the reporter typed it"):
             self.assertIn(word, s)
         self.assertIn("`<path>`", s)
