@@ -69,12 +69,24 @@ def _proc(cmd, **kw):
     """Run a tool found on PATH as UTF-8 text, raising FileNotFoundError when it is not there.
 
     shutil.which finds az.cmd and gh.exe on Windows, which a bare name passed to subprocess does not.
+
+    A .cmd or .bat tool runs through cmd.exe, which splits an unquoted argument at characters such as & and drops
+    the rest of the command (#18). So every argument is quoted and the line handed to cmd.exe /s /c. cmd.exe has no
+    safe way to pass a double quote inside a quoted argument, so such an argument is refused.
+
+    Raises:
+        SpecError: When an argument for a .cmd or .bat tool contains a double quote.
     """
     exe = shutil.which(cmd[0])
     if exe is None:
         raise FileNotFoundError(cmd[0])
-    return subprocess.run([exe] + list(cmd[1:]), capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          **kw)
+    args = [exe] + list(cmd[1:])
+    if exe.lower().endswith((".cmd", ".bat")):
+        if any('"' in a for a in args):
+            raise SpecError(f"{cmd[0]} runs through cmd.exe, which cannot pass an argument containing a double quote")
+        line = " ".join(f'"{a}"' for a in args)
+        args = f'"{os.environ.get("COMSPEC", "cmd.exe")}" /d /s /c "{line}"'
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
 
 
 # ---------------------------------------------------------------- time
