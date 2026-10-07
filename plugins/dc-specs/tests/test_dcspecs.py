@@ -293,6 +293,32 @@ class Portability(unittest.TestCase):
         with self.assertRaises(d.SpecError):
             d._az(["devops", "project", "list"], {"ado": {"org": "x", "project": "y"}})
 
+    def fake_run(self, path):
+        calls, orig_which, orig_run = [], d.shutil.which, d.subprocess.run
+        d.shutil.which = lambda name, *a, **k: path
+        d.subprocess.run = lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+        self.addCleanup(setattr, d.shutil, "which", orig_which)
+        self.addCleanup(setattr, d.subprocess, "run", orig_run)
+        return calls
+
+    def test_double_quote_for_a_cmd_or_bat_tool_raises_before_running(self):
+        for path in (r"C:\az\az.cmd", r"C:\az\AZ.CMD", r"C:\tools\x.Bat"):
+            calls = self.fake_run(path)
+            with self.assertRaises(d.SpecError) as e:
+                d._proc(["az", "rest", 'a"b'])
+            self.assertIn("az", str(e.exception))
+            self.assertEqual(calls, [])
+
+    def test_other_tools_get_the_argument_list(self):
+        for path in ("/usr/bin/git", r"C:\gh\gh.exe", "/opt/tools/cmd"):
+            calls = self.fake_run(path)
+            d._proc(["git", "log", "a&b c"])
+            self.assertEqual(calls, [[path, "log", "a&b c"]])
+
+    def test_double_quote_reaches_other_tools_unchanged(self):
+        r = d._proc([sys.executable, "-c", "import sys; print(sys.argv[1])", 'say "hi"'])
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'say "hi"'), r.stderr)
+
     def test_non_ascii_round_trips_through_stdio(self):
         spec = SPEC.replace("Owners forget check-ins", "Owners forget check-ins \u2014 caf\u00e9")
         r = subprocess.run(H + ["fingerprint"], input=spec.encode("utf-8"), capture_output=True,
