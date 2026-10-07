@@ -13,7 +13,9 @@ If this conversation wrote the code or the evidence, stop and tell the human to 
 
 ## 1. Load
 
-- Run Status. Continue only at `frozen`, noting `frozen_fingerprint`. Save the spec as read from the source to a temp file.
+- Run Status. Continue at `frozen`, noting `frozen_fingerprint`. Save the spec as read from the source to a temp file.
+- At `needs-freeze` only, a human may waive the freeze check now, with a reason and an expiry. Then use `H fingerprint --spec <spec>` as the frozen fingerprint and add `- freeze: waived by <name> until YYYY-MM-DD - <reason>` under `### Waivers` in the verdict. With no waiver, stop.
+- At `not-approved`, `needs-confirmation` or `changed`, stop and act as the framework says. These are never waived.
 - Find the PR and read it (the framework's PR operations). Save the body as the evidence, note `headRefOid`, and check that commit out with a clean tree.
 - Run `H evidence check --spec <spec> --evidence <evidence> --frozen <frozen_fingerprint> [--repo-tag <this repo>]`. Its errors are findings. With no evidence at all, stop and tell the human to run spec-implement's hand-off.
 - Run `H verdict render --spec <spec> --evidence <evidence> --head <headRefOid> --frozen <frozen_fingerprint> --out <verdict>`.
