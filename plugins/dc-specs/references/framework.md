@@ -6,7 +6,7 @@ The rules every dc-specs skill shares. Skills link here instead of repeating the
 
 A spec lives in one place: the source named in `specs/config.yaml`, which is a Jira issue, a Linear issue, an Azure DevOps work item, a GitHub issue or a markdown file. There is no second copy. Every decision, clarification and correction is recorded on the spec as a dated amendment, not in chat, plans or PR threads.
 
-Every skill starts with `H config`. With no valid config, `spec-author` runs `spec-setup` first and continues; the other skills stop and tell the human to run `spec-setup`.
+Every skill starts with `H config`. With no valid config, `spec-author` runs `spec-setup` first and continues; the other skills stop and tell the human to run `spec-setup`. `report-issue` is the exception: it files an issue about dc-specs itself and needs no config.
 
 Source-specific steps live in `references/sources/<source>.md`, the adapter. Skills name its operations: Create, Read, Status, Approve, Freeze record, Amend, Find related specs, Find the PR, Close note.
 
@@ -28,6 +28,8 @@ Source-specific steps live in `references/sources/<source>.md`, the adapter. Ski
 | `status <target>` | The freeze state. The adapter's Status says what the target is. |
 | `ado create\|describe\|comment [--item N] [--title T] --body-file F` | Azure DevOps writes in Markdown (`sources/ado.md`). |
 | `evidence render\|check`, `verdict render\|check\|latest` | The PR description and the verdict comment (`evidence.md`). |
+| `report-env` | The dc-specs, OS, Python and tool versions for an issue, and the source type. No paths or config values. Works without a config. Used by `report-issue`. |
+| `report-link --title T --label bug\|enhancement --body-file F` | A prefilled new-issue link on the dc-specs repo. The body is in it only while the link fits 8000 characters; otherwise it comes back to paste. Used by `report-issue`. |
 
 Without `--spec`, a command reads the spec from stdin.
 
