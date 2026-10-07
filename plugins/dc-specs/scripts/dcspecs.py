@@ -485,7 +485,7 @@ def setup_check(cfg: dict) -> dict:
     in_git = git_root(root) is not None
     add("git repo", in_git, root)
     if in_git:
-        rel, br = os.path.relpath(cfg["_path"], root), default_branch(root)
+        rel, br = os.path.relpath(cfg["_path"], root).replace(os.sep, "/"), default_branch(root)
         on = bool(br) and _git(["cat-file", "-e", f"{br}:{rel}"], root).returncode == 0
         add("config on the default branch", on, f"{rel} is on {br}" if on else
             f"{rel} is not on {br or 'the default branch'} yet; until it merges, dc-specs only works on a branch that "
