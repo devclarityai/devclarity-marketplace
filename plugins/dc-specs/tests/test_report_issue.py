@@ -102,7 +102,7 @@ class ReportLink(unittest.TestCase):
     """report-link: the prefilled new-issue link the skill falls back to without gh."""
     def body_file(self, text):
         fd, path = tempfile.mkstemp(suffix=".md")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(text)
         return path
 
