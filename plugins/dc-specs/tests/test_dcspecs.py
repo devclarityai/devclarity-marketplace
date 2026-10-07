@@ -326,9 +326,9 @@ class WindowsCmdArgs(unittest.TestCase):
         self.assertEqual(got, ["rest", "--method", "GET", "--uri", url, "--resource", d.ADO_RESOURCE, "-o", "json"])
 
     def test_metacharacters_reach_az_unchanged(self):
-        arg = "a&b|c<d>e^f(g)h i"
-        r = d._proc(["az", arg, "next"])
-        self.assertEqual(json.loads(r.stdout), [arg, "next"], r.stderr)
+        args = ["a&b|c<d>e^f(g)h i", "a&b", "c|d", "e^f", "(g)", "next"]
+        r = d._proc(["az"] + args)
+        self.assertEqual(json.loads(r.stdout), args, r.stderr)
 
     def test_url_encoded_project_with_a_space_reaches_az_unchanged(self):
         url, got = self.argv("My Project")
