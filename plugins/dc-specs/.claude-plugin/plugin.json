@@ -1,6 +1,6 @@
 {
   "name": "dc-specs",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "license": "MIT",
   "description": "Spec-driven development: customizable spec templates and six skills (spec-setup, spec-template, spec-author, spec-implement, spec-verify, spec-close) that take a spec from draft to close on whatever source of truth the team uses - Jira, Linear, Azure DevOps, GitHub Issues or a markdown file.",
   "author": { "name": "DevClarity", "url": "https://devclarity.ai" }
