@@ -293,12 +293,73 @@ class Portability(unittest.TestCase):
         with self.assertRaises(d.SpecError):
             d._az(["devops", "project", "list"], {"ado": {"org": "x", "project": "y"}})
 
+    def fake_run(self, path):
+        calls, orig_which, orig_run = [], d.shutil.which, d.subprocess.run
+        d.shutil.which = lambda name, *a, **k: path
+        d.subprocess.run = lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+        self.addCleanup(setattr, d.shutil, "which", orig_which)
+        self.addCleanup(setattr, d.subprocess, "run", orig_run)
+        return calls
+
+    def test_double_quote_for_a_cmd_or_bat_tool_raises_before_running(self):
+        for path in (r"C:\az\az.cmd", r"C:\az\AZ.CMD", r"C:\tools\x.Bat"):
+            calls = self.fake_run(path)
+            with self.assertRaises(d.SpecError) as e:
+                d._proc(["az", "rest", 'a"b'])
+            self.assertIn("az", str(e.exception))
+            self.assertEqual(calls, [])
+
+    def test_other_tools_get_the_argument_list(self):
+        for path in ("/usr/bin/git", r"C:\gh\gh.exe", "/opt/tools/cmd"):
+            calls = self.fake_run(path)
+            d._proc(["git", "log", "a&b c"])
+            self.assertEqual(calls, [[path, "log", "a&b c"]])
+
+    def test_double_quote_reaches_other_tools_unchanged(self):
+        r = d._proc([sys.executable, "-c", "import sys; print(sys.argv[1])", 'say "hi"'])
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'say "hi"'), r.stderr)
+
     def test_non_ascii_round_trips_through_stdio(self):
         spec = SPEC.replace("Owners forget check-ins", "Owners forget check-ins \u2014 caf\u00e9")
         r = subprocess.run(H + ["fingerprint"], input=spec.encode("utf-8"), capture_output=True,
                            env=dict(os.environ, PYTHONIOENCODING="cp1252"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout.decode("utf-8"))["fingerprint"], d.fingerprint(spec))
+
+
+@unittest.skipUnless(os.name == "nt", "cmd.exe runs .cmd files only on Windows")
+class WindowsCmdArgs(unittest.TestCase):
+    """Arguments reach a .cmd tool through cmd.exe unchanged, checked with a fake az.cmd that prints its argv."""
+    def setUp(self):
+        t = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, t, True)
+        with open(os.path.join(t, "az.cmd"), "w", encoding="utf-8") as f:
+            f.write(f'@"{sys.executable}" -c "import json, sys; print(json.dumps(sys.argv[1:]))" %*\n')
+        env = {k: v for k, v in os.environ.items() if k != "AZURE_DEVOPS_EXT_PAT"}
+        env["PATH"] = t + os.pathsep + env.get("PATH", "")
+        orig = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(env)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(orig)))
+
+    def argv(self, project):
+        url = (f"https://dev.azure.com/acme/{d.urllib.parse.quote(project)}/_apis/wit/workitems/7?"
+               f"%24expand=all&api-version={d.ADO_ITEM_API}")
+        return url, d._ado_rest({"ado": {"org": "acme", "project": project}}, "7", {"$expand": "all"})
+
+    def test_r1_ado_rest_arguments_after_ampersand_reach_az(self):
+        url, got = self.argv("Fabrikam")
+        self.assertEqual(got, ["rest", "--method", "GET", "--uri", url, "--resource", d.ADO_RESOURCE, "-o", "json"])
+
+    def test_metacharacters_reach_az_unchanged(self):
+        args = ["a&b|c<d>e^f(g)h i", "a&b", "c|d", "e^f", "(g)", "next"]
+        r = d._proc(["az"] + args)
+        self.assertEqual(json.loads(r.stdout), args, r.stderr)
+
+    def test_url_encoded_project_with_a_space_reaches_az_unchanged(self):
+        url, got = self.argv("My Project")
+        self.assertIn("%20", url)
+        self.assertEqual(got, ["rest", "--method", "GET", "--uri", url, "--resource", d.ADO_RESOURCE, "-o", "json"])
 
 
 class Fingerprint(unittest.TestCase):

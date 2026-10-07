@@ -69,12 +69,24 @@ def _proc(cmd, **kw):
     """Run a tool found on PATH as UTF-8 text, raising FileNotFoundError when it is not there.
 
     shutil.which finds az.cmd and gh.exe on Windows, which a bare name passed to subprocess does not.
+
+    A .cmd or .bat tool runs through cmd.exe, which splits an unquoted argument at characters such as & and drops
+    the rest of the command (#18). So every argument is quoted and the line handed to cmd.exe /s /c. cmd.exe has no
+    safe way to pass a double quote inside a quoted argument, so such an argument is refused.
+
+    Raises:
+        SpecError: When an argument for a .cmd or .bat tool contains a double quote.
     """
     exe = shutil.which(cmd[0])
     if exe is None:
         raise FileNotFoundError(cmd[0])
-    return subprocess.run([exe] + list(cmd[1:]), capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          **kw)
+    args = [exe] + list(cmd[1:])
+    if exe.lower().endswith((".cmd", ".bat")):
+        if any('"' in a for a in args):
+            raise SpecError(f"{cmd[0]} runs through cmd.exe, which cannot pass an argument containing a double quote")
+        line = " ".join(f'"{a}"' for a in args)
+        args = f'"{os.environ.get("COMSPEC", "cmd.exe")}" /d /s /c "{line}"'
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
 
 
 # ---------------------------------------------------------------- time
@@ -545,7 +557,7 @@ def setup_check(cfg: dict) -> dict:
     in_git = git_root(root) is not None
     add("git repo", in_git, root)
     if in_git:
-        rel, br = os.path.relpath(cfg["_path"], root), default_branch(root)
+        rel, br = os.path.relpath(cfg["_path"], root).replace(os.sep, "/"), default_branch(root)
         on = bool(br) and _git(["cat-file", "-e", f"{br}:{rel}"], root).returncode == 0
         add("config on the default branch", on, f"{rel} is on {br}" if on else
             f"{rel} is not on {br or 'the default branch'} yet; until it merges, dc-specs only works on a branch that "
@@ -1757,7 +1769,7 @@ P_LINK, P_NAME, P_CI, P_FILL = ("<link to the spec>", "<spec id and title>",
 P_RESULT = "<overall>"
 RANK = {"confirmed": 0, "waived": 0, "other repo": 0, "unverifiable": 1, "weak": 2, "disputed": 3}
 OVERALL = ("confirmed", "unverifiable", "weak", "disputed")
-WAIVER_RE = re.compile(r"^\s*[-*+]\s+\**(" + AC_ID + r")\**\s*:\s*waived by\s+(.+?)\s+until\s+(\S+)\s+-\s+(.*)$", re.I)
+WAIVER_RE = re.compile(r"^\s*[-*+]\s+\**(" + AC_ID + r"|freeze)\**\s*:\s*waived by\s+(.+?)\s+until\s+(\S+)\s+-\s+(.*)$", re.I)
 SLIDE_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?\**Slide\s+(\d+)\**\s*[:.)\-]?\**\s*(.*)$", re.I)
 IMG_RE = re.compile(r"!\[[^\]]*\]\([^)\s]+[^)]*\)")
 
@@ -2170,7 +2182,7 @@ def verdict_check(spec_text: str, verdict: str, evidence: str | None = None, hea
 
     Returns:
         {ok, errors, overall, result_line, conclusion, head, frozen fingerprint, amendment count, evidence template,
-            waivers by criterion}. result_line is the line the comment must carry.
+            waivers by criterion id or "freeze"}. result_line is the line the comment must carry.
     """
     verdict = _lf(verdict)
     errors, values, v = check_doc("verdict", spec_text, verdict, _verdict_template(), repo_tag, frozen)
@@ -2194,15 +2206,18 @@ def verdict_check(spec_text: str, verdict: str, evidence: str | None = None, hea
             continue
         m = WAIVER_RE.match(line)
         if not m or _blank(m.group(2)) or _blank(m.group(4)):
-            errors.append(f"waiver not in '- ACn: waived by <name> until YYYY-MM-DD - <reason>' form: {line.strip()[:80]}")
+            errors.append("waiver not in '- ACn: waived by <name> until YYYY-MM-DD - <reason>' or "
+                          f"'- freeze: waived by <name> until YYYY-MM-DD - <reason>' form: {line.strip()[:80]}")
             continue
         cid, until = m.group(1), m.group(3)
+        cid = "freeze" if cid.lower() == "freeze" else cid
         waivers[cid] = {"by": m.group(2).strip(), "until": until, "reason": m.group(4).strip()}
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", until) or not _real_date(until):
             errors.append(f"{cid}: the waiver's date {until!r} is not a real YYYY-MM-DD date")
         elif until < today:
-            errors.append(f"{cid}: the waiver expired on {until}")
-        if verdicts.get(cid) != "waived":
+            errors.append("the freeze waiver expired on " + until if cid == "freeze" else
+                          f"{cid}: the waiver expired on {until}")
+        if cid != "freeze" and verdicts.get(cid) != "waived":
             errors.append(f"{cid}: has a waiver but its row is not marked waived")
     errors += [f"{k}: marked waived with no waiver line" for k, x in verdicts.items() if x == "waived" and k not in waivers]
     want = result_line(list(verdicts.values()))
