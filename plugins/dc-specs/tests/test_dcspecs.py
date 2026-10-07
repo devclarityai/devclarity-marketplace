@@ -301,6 +301,41 @@ class Portability(unittest.TestCase):
         self.assertEqual(json.loads(r.stdout.decode("utf-8"))["fingerprint"], d.fingerprint(spec))
 
 
+@unittest.skipUnless(os.name == "nt", "cmd.exe runs .cmd files only on Windows")
+class WindowsCmdArgs(unittest.TestCase):
+    """Arguments reach a .cmd tool through cmd.exe unchanged, checked with a fake az.cmd that prints its argv."""
+    def setUp(self):
+        t = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, t, True)
+        with open(os.path.join(t, "az.cmd"), "w", encoding="utf-8") as f:
+            f.write(f'@"{sys.executable}" -c "import json, sys; print(json.dumps(sys.argv[1:]))" %*\n')
+        env = {k: v for k, v in os.environ.items() if k != "AZURE_DEVOPS_EXT_PAT"}
+        env["PATH"] = t + os.pathsep + env.get("PATH", "")
+        orig = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(env)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(orig)))
+
+    def argv(self, project):
+        url = (f"https://dev.azure.com/acme/{d.urllib.parse.quote(project)}/_apis/wit/workitems/7?"
+               f"%24expand=all&api-version={d.ADO_ITEM_API}")
+        return url, d._ado_rest({"ado": {"org": "acme", "project": project}}, "7", {"$expand": "all"})
+
+    def test_r1_ado_rest_arguments_after_ampersand_reach_az(self):
+        url, got = self.argv("Fabrikam")
+        self.assertEqual(got, ["rest", "--method", "GET", "--uri", url, "--resource", d.ADO_RESOURCE, "-o", "json"])
+
+    def test_metacharacters_reach_az_unchanged(self):
+        arg = "a&b|c<d>e^f(g)h i"
+        r = d._proc(["az", arg, "next"])
+        self.assertEqual(json.loads(r.stdout), [arg, "next"], r.stderr)
+
+    def test_url_encoded_project_with_a_space_reaches_az_unchanged(self):
+        url, got = self.argv("My Project")
+        self.assertIn("%20", url)
+        self.assertEqual(got, ["rest", "--method", "GET", "--uri", url, "--resource", d.ADO_RESOURCE, "-o", "json"])
+
+
 class Fingerprint(unittest.TestCase):
     """Fingerprints of a spec's frozen part, stable across tracker re-rendering."""
     def test_stable_across_rerender_amendments_and_status(self):
