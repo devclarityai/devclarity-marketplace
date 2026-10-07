@@ -82,6 +82,12 @@ H verdict latest --comments <saved PR JSON> --head <headRefOid> [--spec <spec>] 
 | `waived` | A named human accepted the row, with a reason and an expiry, on one line under `### Waivers`. |
 | `other repo` | Tagged for another repo, whose own PR proves it. |
 
+A spec that is approved but has no freeze record (`needs-freeze`) can still be verified when a human waives the freeze check. Only `spec-verify` writes that line, under `### Waivers`, and it needs no criterion row:
+
+```markdown
+- freeze: waived by Parker Kain until 2026-10-20 - az cannot post the freeze record on Windows
+```
+
 The Result is the worst row: `disputed`, then `weak`, then `unverifiable`, then `confirmed`. Waived and other repo rows count as confirmed. `check` prints the exact `result_line` to use, and also checks the head commit, that only a claimed pass is confirmed, and that each waiver's date has not passed.
 
 A verdict is pinned to the head commit, the spec's fingerprint and amendment count, and the evidence template's version. It is stale once any of them changes, so any push makes it stale. `latest` finds the newest verdict that is not stale, and says why each other one is.
