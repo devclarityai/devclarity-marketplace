@@ -118,7 +118,9 @@ class Build(unittest.TestCase):
 class Release(unittest.TestCase):
     def test_ac17_description_does_not_say_tests_first(self):
         desc = next(l for l in implement().splitlines() if l.startswith("description:"))
-        self.assertNotIn("tests first", desc.lower())
+        for phrase in ("tests first", "test first", "before the code", "fail first"):
+            self.assertNotIn(phrase, desc.lower())
+        self.assertIn("builds each step the repo's way with its own skills and a passing test per criterion", desc)
 
     def test_ac18_verify_runs_tests_the_repo_way(self):
         self.assertIn("the way the repo says to run tests, using a repo skill or the commands it states",
@@ -133,7 +135,9 @@ class Release(unittest.TestCase):
 
     def test_ac20_readme_row_does_not_say_test_first(self):
         row = next(l for l in read("README.md").splitlines() if l.startswith("| 4 | `spec-implement`"))
-        self.assertNotIn("test first", row.lower())
+        for phrase in ("test first", "tests first", "before the code", "fail first"):
+            self.assertNotIn(phrase, row.lower())
+        self.assertIn("Builds it the repo's way, with its own skills and a passing test per criterion", row)
 
     def test_ac21_version_is_above_0_9_8(self):
         version = json.loads(read(".claude-plugin", "plugin.json"))["version"]
