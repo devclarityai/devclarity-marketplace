@@ -14,4 +14,4 @@ The spec is the description of a Linear issue, through the Linear MCP server: it
 | **Find the PR** | `gh pr list --state all --search "<identifier>" --json number,title,state,url` in the code repo |
 | **Close note** | Comment with the note. Leave the state to the team. |
 
-Branch names use Linear's suggested branch name, or `<identifier>-<slug>`.
+When the repo states no branch convention, branch names use Linear's suggested branch name, or `<identifier>-<slug>`.

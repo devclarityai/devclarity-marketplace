@@ -23,9 +23,11 @@ If this conversation wrote the code or the evidence, stop and tell the human to 
 ## 2. Audit every criterion
 
 1. **Read** the test the row names. Does it prove the Then clause, as amended?
-2. **Run** it now.
+2. **Run** it now, the way the repo says to run tests, using a repo skill or the commands it states (the framework's Process and the repo's way).
 3. **Break it:** change the implementation so the behavior is wrong, see the test fail, then `git checkout -- <file>`. For a reproduction, run the test on `<head>~1` in a worktree. For a refactor, run the suite at the base and head commits.
 4. **Fill the row** with a verdict from `evidence.md`: a confirmed row says what you broke; any other row says why.
+
+The repo's way changes how tests run, never the audit: every criterion is still read, run and broken, and no PR claim is trusted.
 
 Never leave the tree modified, commit or push. A row is `waived` only when a human says so now; record the waiver.
 

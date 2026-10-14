@@ -63,7 +63,7 @@ class Branch(unittest.TestCase):
 
     def test_ac6_adapters_branch_line_is_the_fallback(self):
         for source in ("github", "jira", "linear", "ado"):
-            lines = [l for l in read("references", "sources", f"{source}.md").splitlines() if "Branch names" in l]
+            lines = [l for l in read("references", "sources", f"{source}.md").splitlines() if "branch names" in l.lower()]
             self.assertEqual(len(lines), 1, source)
             self.assertTrue(lines[0].startswith("When the repo states no branch convention, branch names"), source)
 

@@ -1,6 +1,6 @@
 ---
 name: spec-implement
-description: Use when building an approved dc-specs spec in a repo that has specs/config.yaml - "build OPS-412", "implement the spec", "build it" after a spec is approved, "start on this spec". Confirms the spec is frozen and records the version it builds against, plans against the numbered acceptance criteria, writes tests first, and stops to ask when the spec is unclear, recording every answer on the spec as a dated amendment, fills the evidence as tests pass, and opens the PR with the evidence as its description. Never edits the frozen spec.
+description: Use when building an approved dc-specs spec in a repo that has specs/config.yaml - "build OPS-412", "implement the spec", "build it" after a spec is approved, "start on this spec". Confirms the spec is frozen and records the version it builds against, plans against the numbered acceptance criteria, builds each step the repo's way with its own skills and a passing test per criterion, and stops to ask when the spec is unclear, recording every answer on the spec as a dated amendment, fills the evidence as tests pass, and opens the PR with the evidence as its description. Never edits the frozen spec.
 ---
 
 # spec-implement
@@ -17,15 +17,15 @@ Tell the human in one line: the spec id, `frozen_fingerprint`, and the criteria 
 
 ## 2. Branch
 
-Work on a branch named with the adapter's convention, from the default branch. If `specs/config.yaml` is not there yet, branch from the one that has it and say so. For markdown, the branch must contain the approving commit; do the adapter's Status moves.
+Work on a branch from the default branch, named by the convention the repo states in its `CLAUDE.md` files, a contributing guide, or a skill. When the repo states no convention, use the adapter's. If `specs/config.yaml` is not there yet, branch from the one that has it and say so. For markdown, the branch must contain the approving commit; do the adapter's Status moves.
 
 ## 3. Plan
 
-In the session, not a file: one step per unit of work naming the criteria it satisfies, the test each criterion gets, and every criterion covered. Anything no criterion asks for is a question for the human. Show the plan before writing code.
+In the session, not a file: one step per unit of work naming the criteria it satisfies, the test each criterion gets, and every criterion covered. A step names the available skill that covers its kind of work, when one does; a step with no matching skill names none. Anything no criterion asks for is a question for the human. Show the plan before writing code.
 
-## 4. Build, tests first
+## 4. Build
 
-For each step, write the test from the criterion, see it fail for the right reason, then write the code until it passes. Run the wider suite before moving on. Stay inside the spec's scope.
+Build each step the repo's way (the framework's Process and the repo's way), using the skill the plan named for it. A skill that covers one step, such as adding an endpoint, does not replace the rest of the process. Tests may come before or after the code, as the repo works. Every criterion ends with a passing test that checks the criterion as written, not the code's current behavior. Run the wider suite before moving on. Stay inside the spec's scope.
 
 Render the evidence once, after the plan, outside the repo:
 
@@ -35,7 +35,8 @@ H evidence render --spec <spec> --frozen <frozen_fingerprint> [--id <spec id>] [
 
 Fill a criterion's row when its test passes. After an amendment or a new template version, render again with `--merge <evidence>`.
 
-- **Reproduction:** commit the failing test on its own before the fix, so the verifier can run it on the fix's parent.
+- **Repo skills:** When a repo skill would widen scope, skip a criterion, or change the evidence or the PR, follow dc-specs' process. When it is unclear which applies, ask through the consult loop.
+- **Reproduction:** for a bugfix, commit the failing reproduction test on its own before the fix, so the verifier can run it on the fix's parent.
 - **Mockup slides:** render each still at the slide's keys, rung and width, beside the approved mockup.
 
 ## 5. Stop and ask
