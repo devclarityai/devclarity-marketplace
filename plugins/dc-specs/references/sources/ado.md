@@ -16,4 +16,4 @@ Descriptions are Markdown. `az boards` writes only HTML, so every Description an
 | **Find the PR** | `gh pr list --state all --search "AB#<n> in:body" --json number,title,state,url` in the code repo |
 | **Close note** | `H ado comment --item <n> --body-file <note>`. Leave the State to the team. |
 
-Branch names start with the work item number: `<n>-<slug>`. PR bodies include `AB#<n>`, which the Azure Boards GitHub app links; not `Fixes AB#<n>`, which would move the State.
+When the repo states no branch convention, branch names start with the work item number: `<n>-<slug>`. PR bodies include `AB#<n>`, which the Azure Boards GitHub app links; not `Fixes AB#<n>`, which would move the State.

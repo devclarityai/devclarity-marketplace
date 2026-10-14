@@ -6,7 +6,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | Description |
 | :----- | :---------- |
-| [`dc-specs`](./plugins/dc-specs) | Spec-driven development: six skills that take a ticket to an approved spec with acceptance criteria, build it test first with evidence for each criterion, and verify the PR in a fresh session. Specs stay in Jira, Linear, Azure DevOps, GitHub Issues or markdown. |
+| [`dc-specs`](./plugins/dc-specs) | Spec-driven development: six skills that take a ticket to an approved spec with acceptance criteria, build it the repo's way with evidence for each criterion, and verify the PR in a fresh session. Specs stay in Jira, Linear, Azure DevOps, GitHub Issues or markdown. |
 | [`training`](./plugins/training) | Skills for building skills (finding what to write, designing new workflows, improving and evaluating what you have), plus `context-coverage`, which audits how well your agent context (CLAUDE.md, AGENTS.md, Copilot instructions, rules, skills) covers your code, and Playwright testing skills for API tests, E2E tests, and locators. |
 
 ### What's in `training`

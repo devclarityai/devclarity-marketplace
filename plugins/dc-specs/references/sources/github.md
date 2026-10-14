@@ -14,4 +14,4 @@ The spec is the body of an issue in `github.repo`. The approval label (`approval
 | **Find the PR** | `gh pr list --state all --search "#<n> in:body" --json number,title,state,url` in the code repo |
 | **Close note** | `gh issue comment` with the note. `Closes #<n>` in the PR closes the issue. |
 
-Branch names start with the issue number: `<n>-<slug>`. PR bodies include `Closes #<n>`.
+When the repo states no branch convention, branch names start with the issue number: `<n>-<slug>`. PR bodies include `Closes #<n>`.

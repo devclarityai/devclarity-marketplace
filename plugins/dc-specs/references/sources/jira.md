@@ -16,4 +16,4 @@ Pass `contentFormat: "markdown"` on every write and `responseContentFormat: "mar
 | **Find the PR** | `gh pr list --state all --search "<KEY> in:title" --json number,title,state,url` in the code repo |
 | **Close note** | `addCommentToJiraIssue` with the note. Leave the status to the team. |
 
-Branch names start with the key: `<KEY>-<n>-<slug>`. PR titles start with the key so Jira links them.
+When the repo states no branch convention, branch names start with the key: `<KEY>-<n>-<slug>`. PR titles start with the key so Jira links them.

@@ -11,7 +11,7 @@ Spec-driven development for Claude Code: spec templates and six skills that take
 | 1 | `spec-setup` | A repo has no `specs/config.yaml`, or its setup needs changing or checking | Picks the source and approval status, checks them, commits the config. |
 | 2 | `spec-template` | The team wants its own spec or evidence shape (optional) | Writes a spec template and its evidence template to `specs/templates/`. |
 | 3 | `spec-author` | A ticket or idea needs a spec | Writes numbered Given/When/Then criteria onto the source for a human to approve. |
-| 4 | `spec-implement` | The spec is approved | Builds it test first, records every answer as an amendment, and opens the PR with the evidence. |
+| 4 | `spec-implement` | The spec is approved | Builds it the repo's way, with its own skills and a passing test per criterion, records every answer as an amendment, and opens the PR with the evidence. |
 | 5 | `spec-verify` | The PR is open, in a fresh session. `spec-implement` can start that fresh session as a subagent after asking | Audits the evidence against the frozen spec and posts a verdict per criterion. |
 | 6 | `spec-close` | The PR has merged | Adds any rule worth keeping to `CLAUDE.md` through a reviewed PR and posts a closing note. |
 

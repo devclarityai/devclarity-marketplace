@@ -87,6 +87,12 @@ Show every `warning` to the human. After freeze, never edit anything above the A
 
 When the spec is ambiguous, contradicts the code or a `CLAUDE.md` rule, is wrong, or cannot be tested as written, stop and ask one question that cites the criterion. Record the answer as an amendment before continuing, even when it changes nothing.
 
+## Process and the repo's way
+
+dc-specs owns the process: the frozen spec, scope, a plan that covers every criterion, the consult loop and amendments, evidence, the verdict and the PR. The repo owns how the work is done: branch names, code and test style, frameworks, how tests are run, and any skill that covers part of the work. The repo's way is in its `CLAUDE.md` files, a contributing guide, and the skills available in the session. A repo that states none is built the plugin's way.
+
+A repo skill never widens scope, drops a criterion, or changes what counts as evidence or how the verdict is reached. Where one would, follow the process. When it is unclear which applies, ask through the consult loop.
+
 ## Evidence and verdict
 
 The spec is the claim; the PR is the proof.
