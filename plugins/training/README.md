@@ -7,6 +7,7 @@ DevClarity training skills and tooling for Claude Code.
 | Skill | Use when |
 | :---- | :------- |
 | [`context-coverage`](./skills/context-coverage) | Auditing how well agent context covers the code — across a folder of clones, a whole GitHub org, or one monorepo scoped to a single team's area. Renders a self-contained HTML report of things worth checking, per-repo metrics, and a folder tree colored by context coverage. `/training:context-coverage` |
+| [`context-management`](./skills/context-management) | Sorting the lines in CLAUDE.md, rules, docs or skill files with five questions (lint or CI, a ticket, every session, some files, some tasks) and moving each to where it belongs, with an approval stop before anything changes. `/training:context-management` |
 | [`finding-skill-opportunities`](./skills/finding-skill-opportunities) | Auditing a codebase to decide what skills to write — mines git history and existing automation for recurring, multi-step procedures worth capturing. `/training:finding-skill-opportunities` |
 | [`skill-improver`](./skills/skill-improver) | Reviewing or improving an existing skill — checks name/scope, description, structure, and leanness, and surfaces concrete references/scripts/determinism opportunities. `/training:skill-improver` |
 | [`skill-eval-builder`](./skills/skill-eval-builder) | Setting up evals for a skill — scaffolds an `evals/` folder + scorecard measuring whether it fires, output is valid, is in time budget, or (optional) whether its classification gate labels inputs correctly. `/training:skill-eval-builder` |
