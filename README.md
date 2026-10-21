@@ -14,6 +14,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 | Skill | Does |
 | :---- | :--- |
 | `context-coverage` | Audits agent-context coverage across your repos — or across one monorepo, scoped to just the areas your team owns — and renders a self-contained HTML report: things worth checking, per-repo metrics, and a folder tree colored by whether a context file governs it. |
+| `context-management` | Sorts the lines in your CLAUDE.md, rules, docs and skill files with five questions and moves each one to lint, a ticket, CLAUDE.md, a path-scoped rule, a doc, or nowhere, stopping for approval before it changes anything. |
 | `finding-skill-opportunities` | Mines git history, existing automation and session transcripts for recurring procedures worth turning into a skill. |
 | `skill-improver` | Reviews an existing skill for scope, description, structure and leanness. |
 | `skill-eval-builder` | Scaffolds an `evals/` folder and scorecard for a skill. |
