@@ -1,0 +1,125 @@
+name: Context coverage
+
+# On-demand run of the deterministic (non-LLM) half of the context-coverage skill
+# (plugins/training/skills/context-coverage): collect.py scans a GitHub org through
+# the gh CLI, render.py turns the JSON into a self-contained HTML report.
+# Setup, token scopes and how to adapt it for another org:
+# docs/context-coverage-workflow.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: GitHub org or user to scan (blank = the owner of this repo)
+        type: string
+        required: false
+        default: ""
+      repos:
+        description: Comma-separated repo names to scan only these (blank = every repo active in the window)
+        type: string
+        required: false
+        default: ""
+      active_days:
+        description: Activity window in days when repos is blank (0 = all repos)
+        type: string
+        required: false
+        default: "90"
+      compare_to:
+        description: Run ID of an earlier "Context coverage" run to compare against (blank = no comparison)
+        type: string
+        required: false
+        default: ""
+  # Nightly run. Scheduled runs get no inputs, so org falls back to the repo owner
+  # and the default 90-day window applies.
+  # schedule:
+  #   - cron: "17 6 * * *"
+
+# Read-only. The scanned repos are only read through the API with the scan token;
+# actions: read is for downloading an earlier run's artifact for compare_to.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: context-coverage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  coverage:
+    name: Collect and render
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SKILL_DIR: plugins/training/skills/context-coverage
+      # A fine-grained PAT or GitHub App token with Contents: read + Metadata: read on
+      # the target repos. github.token only reaches this repo's private data, so the
+      # fallback is good for public repos only.
+      GH_TOKEN: ${{ secrets.CONTEXT_COVERAGE_TOKEN || github.token }}
+      SCAN_ORG: ${{ inputs.org || github.repository_owner }}
+      SCAN_REPOS: ${{ inputs.repos }}
+      SCAN_ACTIVE_DAYS: ${{ inputs.active_days || '90' }}
+      COMPARE_TO: ${{ inputs.compare_to }}
+      HAS_SCAN_TOKEN: ${{ secrets.CONTEXT_COVERAGE_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # collect.py and render.py are pure standard library: no pip install needed.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Check the token can see the org
+        run: |
+          gh api "users/$SCAN_ORG" --jq '"scanning " + .login + " (" + .type + ")"'
+          if [ "$HAS_SCAN_TOKEN" != "true" ]; then
+            echo "::notice::CONTEXT_COVERAGE_TOKEN is not set; using github.token, which only sees public repos outside this one."
+          fi
+
+      - name: Collect
+        run: |
+          mkdir -p out
+          args=(--org "$SCAN_ORG" --out out/coverage-data.json)
+          if [ -n "$SCAN_REPOS" ]; then
+            args+=(--repos "$SCAN_REPOS")
+          else
+            args+=(--active-days "$SCAN_ACTIVE_DAYS")
+          fi
+          python "$SKILL_DIR/scripts/collect.py" "${args[@]}"
+
+      - name: Download the earlier run to compare against
+        if: env.COMPARE_TO != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: context-coverage
+          path: previous
+          run-id: ${{ env.COMPARE_TO }}
+          github-token: ${{ github.token }}
+
+      - name: Render
+        run: |
+          compare=()
+          if [ -f previous/coverage-data.json ]; then
+            compare=(--compare previous/coverage-data.json)
+          fi
+          python "$SKILL_DIR/scripts/render.py" out/coverage-data.json \
+            --title "Context Coverage: $SCAN_ORG" \
+            --out out/context-coverage-report.html "${compare[@]}"
+
+      - name: Summary
+        run: |
+          compare=()
+          if [ -f previous/coverage-data.json ]; then
+            compare=(--compare previous/coverage-data.json)
+          fi
+          python .github/scripts/context_coverage_summary.py out/coverage-data.json "${compare[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: context-coverage
+          path: |
+            out/coverage-data.json
+            out/context-coverage-report.html
+          if-no-files-found: error
+          retention-days: 90
