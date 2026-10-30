@@ -1217,6 +1217,12 @@ class LintSlides(unittest.TestCase):
             self.assertIn(phrase, row, phrase)
         self.assertRegex(row, r"(?<![A-Za-z])placeholder(?![A-Za-z])")
 
+    def test_framework_defines_the_helper_as_a_shell_function(self):
+        with open(os.path.join(ROOT, "references", "framework.md"), encoding="utf-8") as f:
+            text = f.read().split("## Helper\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn('H() { <python> "${CLAUDE_PLUGIN_ROOT}/scripts/dcspecs.py" "$@"; }', text)
+        self.assertIn("Never store it in a variable and run `$H`", text)
+
     def test_ac22_plugin_version_is_higher_than_0_9_4(self):
         with open(os.path.join(ROOT, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
             version = tuple(int(part) for part in json.load(f)["version"].split("."))

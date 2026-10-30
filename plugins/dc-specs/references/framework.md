@@ -12,7 +12,7 @@ Source-specific steps live in `references/sources/<source>.md`, the adapter. Ski
 
 ## Helper
 
-`H` is `<python> ${CLAUDE_PLUGIN_ROOT}/scripts/dcspecs.py`, where `<python>` is the first of `python3`, `python` and `py -3` whose `--version` is 3.9 or later. Windows often has only `python` or `py`. If none is, the skill stops and tells the human to run `spec-setup`, which installs it. Run `H` inside the repo that owns the spec, or pass `--config <path>`. Anything countable goes through it, never by eye. Output is JSON. Exit 1 means a check failed, exit 2 an error.
+`H` is `<python> ${CLAUDE_PLUGIN_ROOT}/scripts/dcspecs.py`, where `<python>` is the first of `python3`, `python` and `py -3` whose `--version` is 3.9 or later. Windows often has only `python` or `py`. If none is, the skill stops and tells the human to run `spec-setup`, which installs it. Define `H` as a shell function, `H() { <python> "${CLAUDE_PLUGIN_ROOT}/scripts/dcspecs.py" "$@"; }`, or write the command out in full each time. Never store it in a variable and run `$H`: zsh, the macOS default shell, does not split an unquoted variable into words, so `$H` runs one command named after the whole string and fails. Run `H` inside the repo that owns the spec, or pass `--config <path>`. Anything countable goes through it, never by eye. Output is JSON. Exit 1 means a check failed, exit 2 an error.
 
 | Command | Use |
 |---|---|
