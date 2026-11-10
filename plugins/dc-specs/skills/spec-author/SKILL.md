@@ -1,6 +1,6 @@
 ---
 name: spec-author
-description: Use when turning a ticket, issue or idea into a dc-specs spec before building it - "spec this ticket", "write a spec for OPS-412", "draft the acceptance criteria", "refine this story". Decides whether the change needs a spec, recommends a template and lets the human choose, asks the questions a QA lead and a tech lead would, and writes numbered Given/When/Then acceptance criteria onto the spec's source of truth (Jira, Linear, Azure DevOps, GitHub Issues or a markdown file). Not for test specs (RSpec, Jest), OpenAPI specs or other technical specifications.
+description: Use when turning a ticket, issue or idea into a dc-specs spec before building it - "spec this ticket", "write a spec for OPS-412", "draft the acceptance criteria", "refine this story". Decides whether the change needs a spec, recommends a template and lets the human choose, asks the questions a QA lead and a tech lead would, and writes numbered Given/When/Then acceptance criteria onto the spec's source of truth (Jira, Linear, Azure DevOps, GitHub Issues, GitLab Issues or a markdown file). Not for test specs (RSpec, Jest), OpenAPI specs or other technical specifications.
 ---
 
 # spec-author

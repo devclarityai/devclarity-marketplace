@@ -11,7 +11,7 @@ The spec is the description of a Linear issue, through the Linear MCP server: it
 | **Freeze record** | Post `record_to_post` as a comment. |
 | **Amend** | Save the description to a file, `H amend --spec <file> --frozen <frozen_fingerprint> --criterion AC2 --text "..." --by "<name>"`, then update the description with the file exactly. Read back and pipe it to `H fingerprint --frozen <the fingerprint before the write>`: `changed_since_freeze` must be false. |
 | **Find related specs** | Search the team's completed issues for the area name. |
-| **Find the PR** | `gh pr list --state all --search "<identifier>" --json number,title,state,url` in the code repo |
+| **Find the PR** | `gh pr list --state all --search "<identifier>" --json number,title,state,url` in the code repo. On a GitLab code host: `H gitlab mr-find --search <identifier>`. |
 | **Close note** | Comment with the note. Leave the state to the team. |
 
 When the repo states no branch convention, branch names use Linear's suggested branch name, or `<identifier>-<slug>`.

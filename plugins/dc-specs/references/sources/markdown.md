@@ -12,7 +12,7 @@ The spec is a file in the repo, `<markdown.dir>/<ID>-<slug>.md`, with frontmatte
 | **Amend** | `H amend --spec <path> --frozen <frozen_fingerprint> --criterion AC2 --text "..." --by "<name>"`, then commit naming the criterion. |
 | **Status moves** | Set `status:` to `approval.in_progress` when building starts and `approval.done` at close, if configured, and commit each. |
 | **Find related specs** | `grep -ril "<area>" <dir>`, and read each match's `status`. |
-| **Find the PR** | `gh pr list --state all --search "<ID> in:title,body" --json number,title,state,url` |
+| **Find the PR** | `gh pr list --state all --search "<ID> in:title,body" --json number,title,state,url`. On a GitLab code host: `H gitlab mr-find --search <ID>`. |
 | **Close note** | Append `## Closing note` after Amendments, set `status:` to `approval.done`, and commit. |
 
 A squash merge makes the spec look created already approved; Status warns, and `spec-close` checks against the fingerprint in the PR's latest verdict.

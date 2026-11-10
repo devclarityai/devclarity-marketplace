@@ -13,7 +13,7 @@ Descriptions are Markdown. `az boards` writes only HTML, so every Description an
 | **Freeze record** | Write `record_to_post` to a file, then `H ado comment --item <n> --body-file <file>`. |
 | **Amend** | `H amend --item <n> --criterion AC2 --text "..." --by "<name>"`. It refuses if the spec changed since freeze, or if the work item changed while amending, and reads back. |
 | **Find related specs** | `az boards query --org https://dev.azure.com/<org> --project "<project>" --wiql "SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.State] = '<approval.done>' AND [System.Description] CONTAINS WORDS '<area>'"` |
-| **Find the PR** | `gh pr list --state all --search "AB#<n> in:body" --json number,title,state,url` in the code repo |
+| **Find the PR** | `gh pr list --state all --search "AB#<n> in:body" --json number,title,state,url` in the code repo. On a GitLab code host: `H gitlab mr-find --search AB#<n>`. |
 | **Close note** | `H ado comment --item <n> --body-file <note>`. Leave the State to the team. |
 
-When the repo states no branch convention, branch names start with the work item number: `<n>-<slug>`. PR bodies include `AB#<n>`, which the Azure Boards GitHub app links; not `Fixes AB#<n>`, which would move the State.
+When the repo states no branch convention, branch names start with the work item number: `<n>-<slug>`. PR bodies include `AB#<n>`, which the Azure Boards GitHub app links; not `Fixes AB#<n>`, which would move the State. GitLab has no Azure Boards link, so `mr-find` is how the PR is found there.

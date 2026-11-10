@@ -8,14 +8,17 @@ It is a small YAML subset: keys indented with spaces, scalars, quoted strings, `
 
 | Key | Required | Meaning |
 |---|---|---|
-| `source` | yes | `markdown`, `github`, `jira`, `linear` or `ado` |
-| `approval.status` | yes | The value that approves and freezes a spec: a frontmatter status, a GitHub label, a Jira/Linear status name, or an Azure DevOps State |
+| `source` | yes | `markdown`, `github`, `gitlab`, `jira`, `linear` or `ado` |
+| `approval.status` | yes | The value that approves and freezes a spec: a frontmatter status, a GitHub or GitLab label, a Jira/Linear status name, or an Azure DevOps State |
 | `approval.in_progress` | no | The status when building starts. Counts as frozen |
 | `approval.done` | no | The status at close. Counts as frozen |
 | `approval.also_frozen` | no | Any other statuses that still count as frozen, such as `In Review` |
 | `markdown.dir` | no | Where markdown specs live. Default `specs` |
 | `markdown.id_prefix` | no | Prefix for new spec ids. Default `SPEC` |
 | `github.repo` | github | `owner/name` of the repo whose issues hold specs |
+| `code_host` | no | Where the code repo and its PRs live: `github` or `gitlab`. Default `gitlab` for a gitlab source, `github` otherwise |
+| `gitlab.project` | gitlab, or code_host gitlab | The project's full path, such as `group/subgroup/name`. With another source, the code repo |
+| `gitlab.host` | no | The GitLab server, such as `gitlab.example.com`, without `https://`. Default `gitlab.com` |
 | `jira.site` | jira | The Atlassian site, such as `acme.atlassian.net` |
 | `jira.project` | jira | Project key, such as `OPS` |
 | `jira.issue_type` | no | Issue type for new specs. Default `Story` |
@@ -49,6 +52,16 @@ github:
 ```
 
 ```yaml
+# gitlab
+source: gitlab
+approval:
+  status: spec::approved     # a label
+gitlab:
+  project: ai/everfox-marketplace
+  host: gitlab.example.com
+```
+
+```yaml
 # jira
 source: jira
 approval:
@@ -59,6 +72,22 @@ approval:
 jira:
   site: devclarity.atlassian.net
   project: OPS
+```
+
+```yaml
+# jira, with the code on GitLab
+source: jira
+approval:
+  status: Ready for Dev
+  in_progress: In Progress
+  done: Done
+jira:
+  site: devclarity.atlassian.net
+  project: OPS
+code_host: gitlab
+gitlab:
+  project: ai/everfox-marketplace
+  host: gitlab.example.com
 ```
 
 ```yaml
