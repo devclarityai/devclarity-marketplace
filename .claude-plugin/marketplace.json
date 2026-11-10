@@ -17,7 +17,7 @@
     {
       "name": "dc-specs",
       "source": "./plugins/dc-specs",
-      "description": "Spec-driven development: six skills that take a spec from draft to verified PR, on Jira, Linear, Azure DevOps, GitHub Issues or markdown."
+      "description": "Spec-driven development: six skills that take a spec from draft to verified PR, on Jira, Linear, Azure DevOps, GitHub Issues, GitLab Issues or markdown, with code on GitHub or GitLab."
     }
   ]
 }

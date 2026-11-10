@@ -13,7 +13,7 @@ Pass `contentFormat: "markdown"` on every write and `responseContentFormat: "mar
 | **Freeze record** | `addCommentToJiraIssue` with `record_to_post` as the body. |
 | **Amend** | Save the description to a file, then `H amend --spec <file> --frozen <frozen_fingerprint> --criterion AC2 --text "..." --by "<name>"`. Write the file back with `editJiraIssue`, exactly as the helper wrote it. Read back and pipe the description to `H fingerprint --frozen <the fingerprint before the write>`: `changed_since_freeze` must be false. |
 | **Find related specs** | `searchJiraIssuesUsingJql` with `project = <KEY> AND statusCategory = Done AND text ~ "<area>"` |
-| **Find the PR** | `gh pr list --state all --search "<KEY> in:title" --json number,title,state,url` in the code repo |
+| **Find the PR** | `gh pr list --state all --search "<KEY> in:title" --json number,title,state,url` in the code repo. On a GitLab code host: `H gitlab mr-find --search <KEY>`. |
 | **Close note** | `addCommentToJiraIssue` with the note. Leave the status to the team. |
 
-When the repo states no branch convention, branch names start with the key: `<KEY>-<n>-<slug>`. PR titles start with the key so Jira links them.
+When the repo states no branch convention, branch names start with the key: `<KEY>-<n>-<slug>`. PR titles start with the key so Jira links them; on GitLab, the Jira integration links a merge request the same way.

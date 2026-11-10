@@ -1,8 +1,8 @@
 # dc-specs
 
-Spec-driven development for Claude Code: spec templates and six skills that take a spec from draft to close. The spec lives in the tracker the team already uses (Jira, Linear, Azure DevOps, GitHub Issues or a markdown file), with no copy kept anywhere else.
+Spec-driven development for Claude Code: spec templates and six skills that take a spec from draft to close. The spec lives in the tracker the team already uses (Jira, Linear, Azure DevOps, GitHub Issues, GitLab Issues or a markdown file), with no copy kept anywhere else.
 
-`spec-implement` writes the PR description as evidence that each acceptance criterion is met. `spec-verify`, run in a fresh session, checks that evidence against the spec and posts its verdict as a PR comment, and `spec-implement` can start that fresh session as a subagent after asking.
+The code can be on GitHub or GitLab, whichever tracker holds the specs. `spec-implement` writes the PR description (the merge request description on GitLab) as evidence that each acceptance criterion is met. `spec-verify`, run in a fresh session, checks that evidence against the spec and posts its verdict as a PR comment, and `spec-implement` can start that fresh session as a subagent after asking.
 
 ## The flow
 
@@ -24,7 +24,7 @@ The skills call the helper script, `scripts/dcspecs.py`. You don't need to run i
 /plugin install dc-specs@devclarity-marketplace
 ```
 
-The plugin needs Python 3.9 or later and git, on macOS, Linux or Windows, plus the tool for your tracker (`gh`, `az`, or the Atlassian or Linear MCP server). `spec-setup` checks for each one and walks you through installing what's missing.
+The plugin needs Python 3.9 or later and git, on macOS, Linux or Windows, plus the tool for your tracker (`gh`, `glab`, `az`, or the Atlassian or Linear MCP server). `spec-setup` checks for each one and walks you through installing what's missing.
 
 ## Getting started
 

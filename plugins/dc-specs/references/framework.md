@@ -4,7 +4,7 @@ The rules every dc-specs skill shares. Skills link here instead of repeating the
 
 ## One spec, one source of truth
 
-A spec lives in one place: the source named in `specs/config.yaml`, which is a Jira issue, a Linear issue, an Azure DevOps work item, a GitHub issue or a markdown file. There is no second copy. Every decision, clarification and correction is recorded on the spec as a dated amendment, not in chat, plans or PR threads.
+A spec lives in one place: the source named in `specs/config.yaml`, which is a Jira issue, a Linear issue, an Azure DevOps work item, a GitHub or GitLab issue or a markdown file. There is no second copy. Every decision, clarification and correction is recorded on the spec as a dated amendment, not in chat, plans or PR threads.
 
 Every skill starts with `H config`. With no valid config, `spec-author` runs `spec-setup` first and continues; the other skills stop and tell the human to run `spec-setup`. `report-issue` is the exception: it files an issue about dc-specs itself and needs no config.
 
@@ -24,9 +24,10 @@ Source-specific steps live in `references/sources/<source>.md`, the adapter. Ski
 | `render --template N --title T [--id ID]` | A new spec from a template, with the header for this source. |
 | `lint [--spec F] [--approved] [--published]` | Check sections, criteria, amendments and placeholders, plus the slide-image, placeholder and published-image checks. `--approved` reports those three as warnings. `--published` checks that tracker images are uploaded and markdown image files exist. Prints the criteria, amendment count and fingerprint. |
 | `fingerprint [--spec F] [--frozen FP]` | The fingerprint, and whether it differs from `--frozen`. |
-| `amend --criterion AC2 --text "..." --by Name [--frozen FP] [--spec F \| --issue N \| --item N]` | Add a dated amendment. Refuses if the spec no longer matches `--frozen`, or if the write would change the frozen text. `--spec` edits the file, stdin prints the new body, `--issue` edits a GitHub issue, `--item` an Azure DevOps work item. |
+| `amend --criterion AC2 --text "..." --by Name [--frozen FP] [--spec F \| --issue N \| --item N]` | Add a dated amendment. Refuses if the spec no longer matches `--frozen`, or if the write would change the frozen text. `--spec` edits the file, stdin prints the new body, `--issue` edits a GitHub or GitLab issue, `--item` an Azure DevOps work item. |
 | `status <target>` | The freeze state. The adapter's Status says what the target is. |
 | `ado create\|describe\|comment [--item N] [--title T] --body-file F` | Azure DevOps writes in Markdown (`sources/ado.md`). |
+| `gitlab create\|describe\|comment\|mr-create\|mr-describe\|mr-comment\|mr-view\|mr-find` | GitLab issue and merge request writes and reads (`sources/gitlab.md`). |
 | `evidence render\|check`, `verdict render\|check\|latest` | The PR description and the verdict comment (`evidence.md`). |
 | `report-env` | The dc-specs, OS, Python and tool versions for an issue, and the source type. No paths or config values. Works without a config. Used by `report-issue`. |
 | `report-link --title T --label bug\|enhancement --body-file F` | A prefilled new-issue link on the dc-specs repo. The body is in it only while the link fits 8000 characters; otherwise it comes back to paste. Used by `report-issue`. |
@@ -106,14 +107,16 @@ The spec is the claim; the PR is the proof.
 
 ## PR operations
 
-The code repo is on GitHub, whatever the spec source.
+`code_host` says where the code repo is (`config.md`): GitHub by default, GitLab for a `gitlab` source or with `code_host: gitlab`. On GitLab a PR is a merge request in `gitlab.project`; push the branch before opening one.
 
-| Operation | How |
-|---|---|
-| **Open** | `gh pr create --title "<title>" --body-file <evidence>`, with the adapter's link line (such as `Closes #6`) above the evidence. |
-| **Update the evidence** | `gh pr edit <n> --body-file <evidence>` |
-| **Read** | `gh pr view <n> --json body,headRefOid,comments,url`, saved to a file. `.body` is the evidence, `.headRefOid` the head commit. |
-| **Post the verdict** | `gh pr comment <n> --body-file <verdict>`. Never `--edit-last`. |
+| Operation | GitHub | GitLab |
+|---|---|---|
+| **Open** | `gh pr create --title "<title>" --body-file <evidence>` | `H gitlab mr-create --title "<title>" --body-file <evidence>` |
+| **Update the evidence** | `gh pr edit <n> --body-file <evidence>` | `H gitlab mr-describe --mr <n> --body-file <evidence>` |
+| **Read** | `gh pr view <n> --json body,headRefOid,comments,url`, saved to a file | `H gitlab mr-view --mr <n> --out <file>` |
+| **Post the verdict** | `gh pr comment <n> --body-file <verdict>`. Never `--edit-last`. | `H gitlab mr-comment --mr <n> --body-file <verdict>` |
+
+Open puts the adapter's link line (such as `Closes #6`) above the evidence. Read saves the same shape on both: `.body` is the evidence, `.headRefOid` the head commit, and `.comments` is what `H verdict latest --comments` takes.
 
 ## Confirm before writing outside the repo
 

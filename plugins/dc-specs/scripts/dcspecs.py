@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """dc-specs helper: the deterministic parts of the spec lifecycle.
 
-Tracker specs arrive on stdin or as a saved JSON file (the agent fetches them over MCP); GitHub and
-markdown specs are read with gh and git. Output is JSON unless noted.
+Tracker specs arrive on stdin or as a saved JSON file (the agent fetches them over MCP); GitHub, GitLab and
+markdown specs are read with gh, glab and git. Output is JSON unless noted.
 
 Runs on Python 3.9 or later, standard library only, on macOS, Linux and Windows.
 """
@@ -25,11 +25,15 @@ import sys
 import tempfile
 import urllib.parse
 
-SOURCES = ("markdown", "github", "jira", "linear", "ado")
-REQUIRED_KEYS = {"markdown": [], "github": ["repo"], "jira": ["site", "project"], "linear": ["team"],
-                 "ado": ["org", "project"]}
-OPTIONAL_KEYS = {"markdown": ["dir", "id_prefix"], "github": [], "jira": ["issue_type"], "linear": [],
-                 "ado": ["work_item_type"]}
+SOURCES = ("markdown", "github", "gitlab", "jira", "linear", "ado")
+REQUIRED_KEYS = {"markdown": [], "github": ["repo"], "gitlab": ["project"], "jira": ["site", "project"],
+                 "linear": ["team"], "ado": ["org", "project"]}
+OPTIONAL_KEYS = {"markdown": ["dir", "id_prefix"], "github": [], "gitlab": ["host"], "jira": ["issue_type"],
+                 "linear": [], "ado": ["work_item_type"]}
+GITLAB_PROJECT_RE = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
+GITLAB_HOST_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::\d{1,5})?")
+GITLAB_DEFAULT_HOST = "gitlab.com"
+CODE_HOSTS = ("github", "gitlab")
 ADO_ORG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}")
 ADO_DEFAULT_TYPE = "User Story"
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -258,7 +262,23 @@ def validate_config(cfg: dict) -> list:
                 errs.append("github.repo must be owner/name")
             if src == "ado" and block.get("org") and not ADO_ORG_RE.fullmatch(str(block["org"])):
                 errs.append("ado.org must be the organization name (the part after dev.azure.com/), not a URL")
+    host = cfg.get("code_host")
+    if host is not None and host not in CODE_HOSTS:
+        errs.append(f"code_host must be one of {', '.join(CODE_HOSTS)} (got {host!r})")
+    gl = cfg.get("gitlab")
+    if code_host(cfg) == "gitlab" and src != "gitlab" and not (isinstance(gl, dict) and gl.get("project")):
+        errs.append("code_host gitlab needs gitlab.project, the code repo's full path")
+    if isinstance(gl, dict):
+        if gl.get("project") and not GITLAB_PROJECT_RE.fullmatch(str(gl["project"])):
+            errs.append("gitlab.project must be the project's full path, such as group/subgroup/name")
+        if gl.get("host") and not GITLAB_HOST_RE.fullmatch(str(gl["host"])):
+            errs.append("gitlab.host must be a hostname such as gitlab.example.com, without https:// or a path")
     return errs
+
+
+def code_host(cfg: dict) -> str:
+    """Where the code repo and its PRs live: code_host when set, else gitlab for a gitlab source and github otherwise."""
+    return str(cfg.get("code_host") or ("gitlab" if cfg.get("source") == "gitlab" else "github"))
 
 
 def frozen_statuses(cfg: dict) -> list:
@@ -290,13 +310,17 @@ def _yq(v) -> str:
 
 
 def build_config(source: str, approval: str, in_progress: str | None = None, done: str | None = None,
-                 also_frozen: list | None = None, **opts) -> str:
+                 also_frozen: list | None = None, code_host: str | None = None, gitlab_project: str | None = None,
+                 gitlab_host: str | None = None, **opts) -> str:
     """The text of specs/config.yaml for a source and its frozen statuses.
 
     Args:
         in_progress: The status while the spec is built, also frozen.
         done: The status once the spec is closed, also frozen.
-        **opts: The source's keys (repo, site, project, issue_type, team, org, work_item_type, dir, id_prefix) and
+        code_host: github or gitlab, written only when it differs from the source's default.
+        gitlab_project: The GitLab code repo's path when the code host is gitlab and the source is not.
+        gitlab_host: That repo's GitLab server.
+        **opts: The source's keys (repo, host, site, project, issue_type, team, org, work_item_type, dir, id_prefix) and
             templates, the folder of the repo's own templates.
 
     Raises:
@@ -319,8 +343,18 @@ def build_config(source: str, approval: str, in_progress: str | None = None, don
     if also_frozen:
         lines += ["  also_frozen:"] + [f"    - {_yq(x)}" for x in also_frozen]
     block = [(k, clean(opts.get(k))) for k in REQUIRED_KEYS[source] + OPTIONAL_KEYS[source] if clean(opts.get(k))]
+    if source == "gitlab":
+        block = [("project", clean(opts.get("project") or gitlab_project)),
+                 ("host", clean(opts.get("host") or gitlab_host))]
+        block = [(k, v) for k, v in block if v]
     if block or source != "markdown":
         lines += [f"{source}:"] + [f"  {k}: {_yq(v)}" for k, v in block]
+    code_host = clean(code_host)
+    if code_host and code_host != ("gitlab" if source == "gitlab" else "github"):
+        lines.append(f"code_host: {_yq(code_host)}")
+    if code_host == "gitlab" and source != "gitlab":
+        gl = [(k, clean(v)) for k, v in (("project", gitlab_project), ("host", gitlab_host)) if clean(v)]
+        lines += ["gitlab:"] + [f"  {k}: {_yq(v)}" for k, v in gl]
     if opts.get("templates"):
         lines.append(f"templates: {_yq(clean(opts['templates']))}")
     text = "\n".join(lines) + "\n"
@@ -414,10 +448,12 @@ INSTALL = {
             "windows": "winget install --id Git.Git -e"},
     "gh": {"macos": "brew install gh", "linux": "https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
            "windows": "winget install --id GitHub.cli -e"},
+    "glab": {"macos": "brew install glab", "linux": "https://gitlab.com/gitlab-org/cli#installation",
+             "windows": "winget install --id GLab.GLab -e"},
     "az": {"macos": "brew install azure-cli", "linux": "https://learn.microsoft.com/cli/azure/install-azure-cli-linux",
            "windows": "winget install --id Microsoft.AzureCLI -e"},
 }
-SOURCE_TOOLS = {"markdown": [], "github": ["gh"], "jira": [], "linear": [], "ado": ["az"]}
+SOURCE_TOOLS = {"markdown": [], "github": ["gh"], "gitlab": ["glab"], "jira": [], "linear": [], "ado": ["az"]}
 SOURCE_MCP = {
     "jira": "Confirm the Atlassian MCP server is connected: getAccessibleAtlassianResources answers. If not, stop and "
             "tell the human to connect it (claude.ai connectors, or claude mcp add).",
@@ -436,10 +472,11 @@ def install_hint(tool: str) -> str:
     return INSTALL[tool][os_name()]
 
 
-def deps(source: str | None) -> dict:
+def deps(source: str | None, host: str | None = None) -> dict:
     """Check the tools the helper and the source need, each found or with its install step for this OS.
 
-    Python and git are always checked. GitHub adds gh, and Azure DevOps adds az and its azure-devops extension. az is
+    Python and git are always checked. GitHub adds gh, GitLab (as the source or the code host) adds glab, and Azure
+    DevOps adds az and its azure-devops extension. az is
     found by path only, because az --version can make a network call.
 
     Returns:
@@ -453,7 +490,9 @@ def deps(source: str | None) -> dict:
 
     add("python", sys.version_info >= (3, 9), f"{platform.python_version()} at {sys.executable}",
         install_hint("python") + " (3.9 or later)")
-    for tool in ["git"] + SOURCE_TOOLS.get(source or "", []):
+    tools = ["git"] + SOURCE_TOOLS.get(source or "", [])
+    tools += ["glab"] if host == "gitlab" and "glab" not in tools else []
+    for tool in tools:
         path = shutil.which(tool)
         r = _run([tool, "--version"]) if path and tool != "az" else None   # az --version can call home
         add(tool, path, ((r.stdout or "").strip().split("\n")[0] if r and r.returncode == 0 else path) or "not found",
@@ -462,7 +501,8 @@ def deps(source: str | None) -> dict:
         r = _run(["az", "extension", "show", "--name", "azure-devops", "-o", "json"])
         add("azure-devops extension", r and r.returncode == 0, "installed" if r and r.returncode == 0 else "missing",
             "az extension add --name azure-devops")
-    return {"os": os_name(), "source": source, "ok": all(c["ok"] for c in checks), "checks": checks,
+    return {"os": os_name(), "source": source, "code_host": host, "ok": all(c["ok"] for c in checks),
+            "checks": checks,
             "agent_checks": [SOURCE_MCP[source]] if source in SOURCE_MCP else []}
 
 
@@ -541,7 +581,7 @@ def report_link(title: str, label: str, body: str) -> dict:
 def setup_check(cfg: dict) -> dict:
     """Check that a repo's setup works: git, the config's branch, repo templates and the source's connection.
 
-    GitHub and Azure DevOps are checked here through gh and az. Jira and Linear are reached over MCP, so their checks
+    GitHub, GitLab and Azure DevOps are checked here through gh, glab and az. Jira and Linear are reached over MCP, so their checks
     come back as instructions for the agent.
 
     Returns:
@@ -584,7 +624,11 @@ def setup_check(cfg: dict) -> dict:
                 q = _run(["gh", "api", f"repos/{repo}/labels/" + urllib.parse.quote(label, safe="")])
                 add(f"label '{label}'", q.returncode == 0, "exists" if q.returncode == 0 else
                     "missing or unreadable: gh label create " + shlex.quote(label) + " --repo " + shlex.quote(repo))
-    elif src == "jira":
+    elif src == "gitlab":
+        gitlab_checks(cfg, add)
+    if src != "gitlab" and code_host(cfg) == "gitlab":
+        gitlab_checks(cfg, add, labels=False)
+    if src == "jira":
         j = cfg["jira"]
         todo += [
             f"Call getAccessibleAtlassianResources and confirm a site matching {j['site']}.",
@@ -604,6 +648,34 @@ def setup_check(cfg: dict) -> dict:
         ]
     return {"source": src, "ok": not [c for c in checks if c["level"] == "error"], "checks": checks,
             "agent_checks": todo}
+
+
+def gitlab_checks(cfg: dict, add, labels: bool = True):
+    """Check the GitLab setup: glab, its login to the host, the project and, with labels, each frozen label.
+
+    Args:
+        add: setup_check's callback, add(name, ok, detail), that records one check.
+        labels: False when GitLab is only the code host, so approval is not a label.
+    """
+    host, proj = gl_host(cfg), cfg["gitlab"]["project"]
+    r = _run(["glab", "auth", "status", "--hostname", host])
+    if r is None:
+        return add("glab installed", False, "install glab (" + install_hint("glab") + "), then glab auth login "
+                   "--hostname " + host)
+    add(f"glab logged in to {host}", r.returncode == 0, "yes" if r.returncode == 0 else
+        ((r.stderr or r.stdout).strip().split("\n")[0][:160] + "; run glab auth login --hostname " + host))
+    if r.returncode != 0:
+        return
+    try:
+        _glab_json(cfg, gl_path(cfg))
+        add("project readable", True, f"{proj} on {host}")
+    except SpecError as e:
+        return add("project readable", False, str(e))
+    for label in frozen_statuses(cfg) if labels else []:
+        q = _run(["glab", "api", "--hostname", host, gl_path(cfg, "labels/" + urllib.parse.quote(label, safe=""))])
+        add(f"label '{label}'", q is not None and q.returncode == 0, "exists" if q is not None and q.returncode == 0
+            else "missing or unreadable: glab label create --name " + shlex.quote(label) + " --repo "
+            + shlex.quote(host + "/" + proj))
 
 
 def ado_checks(cfg: dict, add):
@@ -1334,6 +1406,243 @@ def gh_amend(repo: str, number: str, cfg: dict, criterion: str, note: str, by: s
         os.unlink(f.name)
     back = fingerprint(read_body())
     return {"written": f"{repo}#{number}", "fingerprint": back, "unchanged": back == fingerprint(before)}
+
+
+# ---------------------------------------------------------------- freeze state and writes, gitlab
+#
+# Every GitLab call goes through glab api with an explicit --hostname, so a self-hosted server is never confused
+# with gitlab.com, and every description is written from a JSON file, never a command-line argument.
+
+GL_PAGE = 100
+GL_MAX_PAGES = 50
+GL_DESCRIPTION_NOTE = re.compile(r"^changed the description\b", re.I)
+
+
+def gl_host(cfg: dict) -> str:
+    """The GitLab host from the config, gitlab.com by default."""
+    return str((cfg.get("gitlab") or {}).get("host") or GITLAB_DEFAULT_HOST)
+
+
+def gl_path(cfg: dict, rest: str = "") -> str:
+    """The API path of the config's project, or of rest under it, such as projects/group%2Fname/issues/4."""
+    p = "projects/" + urllib.parse.quote(str(cfg["gitlab"]["project"]), safe="")
+    return p + ("/" + rest if rest else "")
+
+
+def gl_number(target: str) -> str:
+    """An issue or merge request number from 4, #4 or !4, raising SpecError for anything else."""
+    n = str(target).strip().lstrip("#!")
+    if not n.isdigit():
+        raise SpecError(f"expected an issue or merge request number such as #4 (got {target!r})")
+    return n
+
+
+def _glab(cfg: dict, args: list) -> str:
+    """Run glab api against the config's host and return its stdout, raising SpecError when glab is missing or fails."""
+    try:
+        r = _proc(["glab", "api", "--hostname", gl_host(cfg)] + list(args))
+    except FileNotFoundError:
+        raise SpecError("glab is not installed: " + install_hint("glab"))
+    if r.returncode != 0:
+        raise SpecError("glab api " + " ".join(a for a in args if not a.startswith("-"))[:120] + " failed: "
+                        + (r.stderr.strip() or r.stdout.strip()) + " (sign in with glab auth login --hostname "
+                        + gl_host(cfg) + ")")
+    return r.stdout
+
+
+def _glab_json(cfg: dict, path: str, method: str = "GET", data: dict | None = None):
+    """Call one GitLab API path and parse the JSON reply. data goes as a JSON body from a temporary file."""
+    if data is None:
+        return json.loads(_glab(cfg, ["-X", method, path]) or "null")
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump(data, f)
+    try:
+        return json.loads(_glab(cfg, ["-X", method, path, "-H", "Content-Type: application/json", "--input", f.name])
+                          or "null")
+    finally:
+        os.unlink(f.name)
+
+
+def _gl_pages(cfg: dict, path: str) -> tuple:
+    """Every item of a paged GitLab list, oldest first.
+
+    Returns:
+        (items, complete): complete is False when the list ran past GL_MAX_PAGES pages.
+    """
+    items, sep = [], "&" if "?" in path else "?"
+    for page in range(1, GL_MAX_PAGES + 1):
+        got = _glab_json(cfg, f"{path}{sep}per_page={GL_PAGE}&page={page}") or []
+        items += got
+        if len(got) < GL_PAGE:
+            return items, True
+    return items, False
+
+
+def gl_events(cfg: dict, number: str) -> dict:
+    """The freeze events of a GitLab issue, read through glab, in the shape decide takes.
+
+    Labels stand in for statuses, as on GitHub: an approval is the moment the labels first became frozen, replayed
+    from the resource label events. Description edits are the "changed the description" system notes; a note's
+    updated_at is used when later, because GitLab folds quick successive edits into one note.
+    """
+    issue = _glab_json(cfg, gl_path(cfg, f"issues/{number}"))
+    label_events, labels_ok = _gl_pages(cfg, gl_path(cfg, f"issues/{number}/resource_label_events"))
+    notes, notes_ok = _gl_pages(cfg, gl_path(cfg, f"issues/{number}/notes?sort=asc&order_by=created_at"))
+    approvals, current = [], set()
+    for ev in sorted(label_events, key=lambda e: (parse_ts(e.get("created_at")) or _dt.datetime.min.replace(
+            tzinfo=_dt.timezone.utc), e.get("id") or 0)):
+        name = (ev.get("label") or {}).get("name") or ""
+        before = is_frozen_status(sorted(current), cfg)
+        (current.add if ev.get("action") == "add" else current.discard)(name)
+        if not before and is_frozen_status(sorted(current), cfg):
+            approvals.append(ev.get("created_at"))
+    created = parse_ts(issue.get("created_at"))
+    comments, edits = [], []
+    for n in notes:
+        if not n.get("system"):
+            comments.append({"body": n.get("body") or "", "at": n.get("created_at")})
+        elif GL_DESCRIPTION_NOTE.match(n.get("body") or ""):
+            at = max((t for t in (parse_ts(n.get("created_at")), parse_ts(n.get("updated_at"))) if t), default=None)
+            if at and (not created or at > created):
+                edits.append({"at": fmt_ts(at), "by": (n.get("author") or {}).get("username")})
+    return {"body": issue.get("description") or "", "status_now": list(issue.get("labels") or []),
+            "approvals": approvals, "body_edits": edits, "comments": comments,
+            "history_complete": labels_ok and notes_ok, "id": f"#{number}", "url": issue.get("web_url"),
+            "title": issue.get("title")}
+
+
+def _gl_set_description(cfg: dict, number: str, text: str) -> str:
+    """Write an issue's description and return it as read back."""
+    _glab_json(cfg, gl_path(cfg, f"issues/{number}"), "PUT", {"description": text})
+    return _glab_json(cfg, gl_path(cfg, f"issues/{number}")).get("description") or ""
+
+
+def gl_amend(cfg: dict, number: str, criterion: str, note: str, by: str | None) -> dict:
+    """Add a dated amendment to a GitLab issue description.
+
+    Returns:
+        {written ('#N'), fingerprint (of the description read back), unchanged (whether it matches the one before)}.
+
+    Raises:
+        SpecError: When the frozen text already changed, the amendment would change it, or the description changed
+            while amending.
+    """
+    ev = gl_events(cfg, number)
+    if decide(ev, cfg)["state"] == "changed":
+        raise SpecError("the frozen text changed since freeze; resolve that before amending")
+    before = ev["body"]
+    new = amended(before, criterion, note, by)
+    if (_glab_json(cfg, gl_path(cfg, f"issues/{number}")).get("description") or "") != before:
+        raise SpecError("the issue description changed while amending; re-read and try again")
+    back = fingerprint(_gl_set_description(cfg, number, new))
+    return {"written": f"#{number}", "fingerprint": back, "unchanged": back == fingerprint(before)}
+
+
+def gl_create(cfg: dict, title: str, text: str) -> dict:
+    """Create a GitLab issue whose description is the spec.
+
+    Returns:
+        {written ('#N'), url, round_trip (whether the description read back has the same fingerprint)}.
+    """
+    issue = _glab_json(cfg, gl_path(cfg, "issues"), "POST", {"title": title, "description": text})
+    n = str(issue.get("iid"))
+    back = _glab_json(cfg, gl_path(cfg, f"issues/{n}")).get("description") or ""
+    return {"written": f"#{n}", "url": issue.get("web_url"), "round_trip": fingerprint(back) == fingerprint(text)}
+
+
+def gl_describe(cfg: dict, number: str, text: str) -> dict:
+    """Replace a GitLab issue's description, refusing when the issue is frozen.
+
+    Returns:
+        {written ('#N'), url, round_trip}.
+
+    Raises:
+        SpecError: When the issue has a frozen label; an approved spec changes only through amend.
+    """
+    issue = _glab_json(cfg, gl_path(cfg, f"issues/{number}"))
+    if is_frozen_status(list(issue.get("labels") or []), cfg):
+        raise SpecError(f"#{number} is approved, so its description only changes through amend")
+    back = _gl_set_description(cfg, number, text)
+    return {"written": f"#{number}", "url": issue.get("web_url"), "round_trip": fingerprint(back) == fingerprint(text)}
+
+
+def gl_comment(cfg: dict, kind: str, number: str, text: str) -> dict:
+    """Add a comment to an issue or a merge request (kind 'issues' or 'merge_requests').
+
+    Returns:
+        {written ('#N' or '!N'), note_id, url}.
+    """
+    note = _glab_json(cfg, gl_path(cfg, f"{kind}/{number}/notes"), "POST", {"body": text})
+    sigil = "#" if kind == "issues" else "!"
+    web = _glab_json(cfg, gl_path(cfg, f"{kind}/{number}")).get("web_url") or ""
+    return {"written": f"{sigil}{number}", "note_id": note.get("id"),
+            "url": f"{web}#note_{note.get('id')}" if web else None}
+
+
+def gl_mr_view(cfg: dict, number: str) -> dict:
+    """A merge request in the shape `gh pr view --json body,headRefOid,comments,url` prints, for verdict latest.
+
+    System notes are left out, so comments holds only what people and skills wrote.
+    """
+    mr = _glab_json(cfg, gl_path(cfg, f"merge_requests/{number}"))
+    notes, complete = _gl_pages(cfg, gl_path(cfg, f"merge_requests/{number}/notes?sort=asc&order_by=created_at"))
+    web = mr.get("web_url") or ""
+    return {"number": int(number), "url": web, "state": mr.get("state"), "body": mr.get("description") or "",
+            "headRefOid": mr.get("sha") or "", "comments_complete": complete,
+            "comments": [{"body": n.get("body") or "", "createdAt": n.get("created_at"),
+                          "url": f"{web}#note_{n.get('id')}" if web else None}
+                         for n in notes if not n.get("system")]}
+
+
+def gl_mr_create(cfg: dict, title: str, text: str, branch: str | None, target: str | None) -> dict:
+    """Open a merge request from a pushed branch, by default the current one into the project's default branch.
+
+    Returns:
+        {written ('!N'), url, source_branch, target_branch}.
+
+    Raises:
+        SpecError: When the branch cannot be found, which usually means it has not been pushed.
+    """
+    branch = branch or _git(["rev-parse", "--abbrev-ref", "HEAD"], cfg["_root"]).stdout.strip()
+    if not branch or branch == "HEAD":
+        raise SpecError("not on a branch: pass --branch")
+    project = _glab_json(cfg, gl_path(cfg))
+    target = target or project.get("default_branch") or "main"
+    try:
+        _glab_json(cfg, gl_path(cfg, "repository/branches/" + urllib.parse.quote(branch, safe="")))
+    except SpecError:
+        raise SpecError(f"branch {branch!r} is not on {gl_host(cfg)}: push it first (git push -u origin {branch})")
+    mr = _glab_json(cfg, gl_path(cfg, "merge_requests"), "POST",
+                    {"source_branch": branch, "target_branch": target, "title": title, "description": text})
+    return {"written": f"!{mr.get('iid')}", "url": mr.get("web_url"), "source_branch": branch,
+            "target_branch": target}
+
+
+def gl_mr_describe(cfg: dict, number: str, text: str) -> dict:
+    """Replace a merge request's description, the evidence.
+
+    Returns:
+        {written ('!N'), url, round_trip}.
+    """
+    mr = _glab_json(cfg, gl_path(cfg, f"merge_requests/{number}"), "PUT", {"description": text})
+    back = _glab_json(cfg, gl_path(cfg, f"merge_requests/{number}")).get("description") or ""
+    return {"written": f"!{number}", "url": (mr or {}).get("web_url"),
+            "round_trip": _lf(back).strip() == _lf(text).strip()}
+
+
+def gl_mr_find(cfg: dict, spec_id: str) -> list:
+    """[{number, title, state, url}] for the merge requests whose title or description names a spec id.
+
+    The id matches whole, ignoring case: #4 does not match #41 or other/project#4, and OPS-41 does not match OPS-412.
+    """
+    spec_id = spec_id.strip()
+    if not spec_id:
+        raise SpecError("the spec id to search for is empty")
+    q = urllib.parse.urlencode({"search": spec_id, "in": "title,description", "state": "all"})
+    mrs, _ = _gl_pages(cfg, gl_path(cfg, "merge_requests?" + q))
+    ref = re.compile(r"(?<![\w/!#])" + re.escape(spec_id) + r"(?!\d)", re.I)
+    return [{"number": m.get("iid"), "title": m.get("title"), "state": m.get("state"), "url": m.get("web_url")}
+            for m in mrs if ref.search((m.get("title") or "") + "\n" + (m.get("description") or ""))]
 
 
 # ---------------------------------------------------------------- freeze state, ado
@@ -2157,7 +2466,7 @@ def render_verdict(cfg: dict, spec_text: str, evidence: str, head: str, url: str
         SpecError: When head is not a full 40-character sha.
     """
     if not re.fullmatch(r"[0-9a-f]{40}", head or ""):
-        raise SpecError("--head must be the PR's full 40-character head commit sha (gh pr view --json headRefOid)")
+        raise SpecError("--head must be the PR's full 40-character head commit sha (gh pr view --json headRefOid, or headRefOid from H gitlab mr-view)")
     _check_frozen(spec_text, frozen)
     ev = evidence_check(cfg, spec_text, evidence, frozen=frozen)
     ef = _header_fields(_lf(evidence))
@@ -2308,9 +2617,9 @@ def branch_spec_id(branch: str, cfg: dict) -> str | None:
     src = cfg.get("source")
     if not branch:
         return None
-    if src in ("github", "ado"):
+    if src in ("github", "gitlab", "ado"):
         m = re.match(r"(\d{1,6})-(?=[A-Za-z])", branch)
-        return (f"#{m.group(1)}" if src == "github" else f"AB#{m.group(1)}") if m else None
+        return (f"AB#{m.group(1)}" if src == "ado" else f"#{m.group(1)}") if m else None
     if src in ("jira", "linear"):
         key = str((cfg.get(src) or {}).get("project" if src == "jira" else "team") or "")
     elif src == "markdown":
@@ -2333,6 +2642,8 @@ def _where_line(cfg: dict) -> str:
         where = "markdown files in the repo"
     elif src == "github":
         where = "GitHub issues"
+    elif src == "gitlab":
+        where = "GitLab issues"
     elif src == "ado":
         where = "Azure DevOps work items"
     else:
@@ -2426,9 +2737,10 @@ def cmd_init(a):
     if not root or (a.root and root != os.path.realpath(a.root)):
         raise SpecError(f"--root must be the root of a git repo" if a.root else
                         "not in a git repo: run from the repo, or pass --root")
-    opts = {k: getattr(a, k) for k in ("repo", "site", "project", "issue_type", "team", "org", "work_item_type",
+    opts = {k: getattr(a, k) for k in ("repo", "host", "site", "project", "issue_type", "team", "org", "work_item_type",
                                        "dir", "id_prefix", "templates")}
-    res = init_config(root, build_config(a.source, a.approval, a.in_progress, a.done, a.also_frozen, **opts),
+    res = init_config(root, build_config(a.source, a.approval, a.in_progress, a.done, a.also_frozen, a.code_host,
+                                         a.gitlab_project, a.gitlab_host, **opts),
                       a.force, a.dry_run)
     return res, 1 if res["needs_force"] and not a.force and not a.dry_run else 0
 
@@ -2461,7 +2773,7 @@ def cmd_fingerprint(a):
 
 
 def cmd_amend(a):
-    """The amend command: add a dated amendment to a spec file, stdin, a GitHub issue or an ADO work item.
+    """The amend command: add a dated amendment to a spec file, stdin, a GitHub or GitLab issue or an ADO work item.
 
     Returns:
         The new body for stdin, or a result naming what was written and its fingerprint.
@@ -2477,8 +2789,10 @@ def cmd_amend(a):
         return ado_amend(cfg, ado_number(a.item), a.criterion, a.text, a.by)
     if a.issue:
         cfg = load_config(a.config)
+        if cfg["source"] == "gitlab":
+            return gl_amend(cfg, gl_number(a.issue), a.criterion, a.text, a.by)
         if cfg["source"] != "github":
-            raise SpecError("--issue is for a github source; pass --spec with the spec's text")
+            raise SpecError("--issue is for a github or gitlab source; pass --spec with the spec's text")
         return gh_amend(cfg["github"]["repo"], a.issue.lstrip("#"), cfg, a.criterion, a.text, a.by)
     body = _read(a.spec)
     if a.frozen and fingerprint(body) != a.frozen:
@@ -2499,6 +2813,8 @@ def cmd_status(a):
         return md_status(a.target, cfg)
     if src == "github":
         return decide(gh_events(cfg["github"]["repo"], a.target.lstrip("#"), cfg), cfg)
+    if src == "gitlab":
+        return decide(gl_events(cfg, gl_number(a.target)), cfg)
     if src == "ado":
         return ado_status(cfg, ado_number(a.target))
     with open(a.target, encoding="utf-8") as f:
@@ -2518,15 +2834,49 @@ def cmd_ado(a):
     return ado_describe(cfg, n, text) if a.action == "describe" else ado_comment(cfg, n, text)
 
 
+def cmd_gitlab(a):
+    """The gitlab command: issue writes, which need the gitlab source, and merge request ones, the gitlab code host."""
+    cfg = load_config(a.config)
+    act = a.action
+    if act.startswith("mr-") and code_host(cfg) != "gitlab":
+        raise SpecError("merge request commands need code_host gitlab (or a gitlab source) in specs/config.yaml")
+    if not act.startswith("mr-") and cfg["source"] != "gitlab":
+        raise SpecError("issue commands need a gitlab source in specs/config.yaml")
+    title = lambda: " ".join(_need(a.title, "--title").split())
+    if act == "create":
+        return gl_create(cfg, title(), _read(a.body_file))
+    if act == "mr-create":
+        return gl_mr_create(cfg, title(), _read(a.body_file), a.branch, a.target)
+    if act == "mr-find":
+        if a.issue:
+            return gl_mr_find(cfg, "#" + gl_number(a.issue))
+        return gl_mr_find(cfg, _need(a.search, "--search or --issue"))
+    if act.startswith("mr-"):
+        n = gl_number(_need(a.mr, "--mr"))
+        if act == "mr-view":
+            res = gl_mr_view(cfg, n)
+            if a.out:
+                with open(a.out, "w", encoding="utf-8") as f:
+                    json.dump(res, f, indent=2, ensure_ascii=False)
+                return {k: v for k, v in res.items() if k not in ("body", "comments")} | {"written": a.out}
+            return res
+        text = _read(a.body_file)
+        return gl_mr_describe(cfg, n, text) if act == "mr-describe" else gl_comment(cfg, "merge_requests", n, text)
+    n = gl_number(_need(a.issue, "--issue"))
+    text = _read(a.body_file)
+    return gl_describe(cfg, n, text) if act == "describe" else gl_comment(cfg, "issues", n, text)
+
+
 def cmd_deps(a):
-    """The deps command, for --source or the config's source. Exit 1 when a tool is missing."""
-    source = a.source
+    """The deps command, for --source or the config's source and code host. Exit 1 when a tool is missing."""
+    source, host = a.source, a.code_host
     if not source:
         try:
-            source = load_config(a.config)["source"]
+            cfg = load_config(a.config)
+            source, host = cfg["source"], host or code_host(cfg)
         except SpecError:
             pass
-    res = deps(source)
+    res = deps(source, host)
     return res, 0 if res["ok"] else 1
 
 
@@ -2570,11 +2920,12 @@ def cmd_verdict(a):
 # one without dashes is positional, and name=a|b limits it to those values.
 CLI = {
     "deps": (cmd_deps, "check the tools the helper and the source need, with install steps for this OS",
-             "--source=markdown|github|jira|linear|ado"),
+             "--source=markdown|github|gitlab|jira|linear|ado --code-host=github|gitlab"),
     "config": (cmd_config, "validate specs/config.yaml and print it", ""),
     "init": (cmd_init, "write specs/config.yaml; replacing one needs --force",
-             "--source! --approval! --in-progress --done --also-frozen* --repo --site --project --issue-type --team "
-             "--org --work-item-type --dir --id-prefix --templates --root --force? --dry-run?"),
+             "--source! --approval! --in-progress --done --also-frozen* --repo --host --site --project --issue-type --team "
+             "--org --work-item-type --dir --id-prefix --templates --code-host=github|gitlab --gitlab-project "
+             "--gitlab-host --root --force? --dry-run?"),
     "setup-check": (cmd_setup_check, "check the config, connection, labels and repo templates", ""),
     "templates": (lambda a: template_list(load_config(a.config)), "the spec templates this repo can use", ""),
     "render": (lambda a: render_template(load_config(a.config), a.template, a.title, a.id),
@@ -2584,10 +2935,13 @@ CLI = {
     "fingerprint": (cmd_fingerprint, "the fingerprint of a spec's frozen part", "--spec --frozen"),
     "amend": (cmd_amend, "add a dated amendment, refusing if the frozen text would change",
               "--spec --issue --item --criterion! --text! --by --date --frozen"),
-    "status": (cmd_status, "the freeze state: a markdown spec path, a GitHub issue or Azure DevOps work item "
+    "status": (cmd_status, "the freeze state: a markdown spec path, a GitHub or GitLab issue or Azure DevOps work item "
                            "number, or a saved Jira issue or Linear events JSON file", "target"),
     "ado": (cmd_ado, "Azure DevOps writes as Markdown: create a work item, set its description, or comment",
             "action=create|describe|comment --item --title --type --body-file"),
+    "gitlab": (cmd_gitlab, "GitLab writes and reads: issues, their comments, and merge requests",
+               "action=create|describe|comment|mr-create|mr-describe|mr-comment|mr-view|mr-find --issue --mr "
+               "--title --body-file --branch --target --search --out"),
     "evidence": (cmd_evidence, "render or check the PR description",
                  "action=render|check --spec! --evidence --template --id --url --repo-tag --frozen --merge --out"),
     "verdict": (cmd_verdict, "render or check a verdict comment, or find the latest one",
